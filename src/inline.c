@@ -625,6 +625,15 @@ void inline_delete(inline_editor *edit) {
     }
 }
 
+/** Clear the buffer */
+void inline_clear(inline_editor *edit) {
+    edit->buffer_len = 0; // Clear text buffer 
+    edit->buffer[0] = '\0';
+    edit->grapheme_count = 0; // Reset graphemes
+    edit->cursor_posn = 0; // Reset cursor
+    edit->refresh = true;
+}
+
 /** Navigation keys */
 void inline_home(inline_editor *edit) {
     if (edit->cursor_posn != 0) {
@@ -666,10 +675,11 @@ bool inline_processshortcut(inline_editor *edit, char c) {
         case 'E': inline_end(edit); break;
         case 'B': inline_left(edit); break;
         case 'F': inline_right(edit); break;
+        case 'L': inline_clear(edit); break; 
         /*case 'K': inline_kill_to_end(edit); break;
         case 'U': inline_kill_to_start(edit); break;
         case 'W': inline_delete_prev_word(edit); break;*/
-        case 'C': return false; // exit on Ctrl-C
+        case 'G': return false; // exit on Ctrl-G
         default: break;
     }
     edit->refresh = true;
