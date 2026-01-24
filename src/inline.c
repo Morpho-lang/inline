@@ -393,6 +393,13 @@ void inline_recomputegraphemes(inline_editor *edit) {
 static inline int imin(int a, int b) { return a < b ? a : b; }
 static inline int imax(int a, int b) { return a > b ? a : b; }
 
+/** Finds the start and end of grapheme i in bytes */
+static inline void inline_graphemerange(inline_editor *edit, int i, size_t *start, size_t *end) {
+    if (start) *start = edit->graphemes[i];
+    if (end) *end = ((i + 1 < edit->grapheme_count) ? edit->graphemes[i + 1] : edit->buffer_len);
+}
+
+/** Redraw the line */
 void inline_redraw(inline_editor *edit) {
     write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
 
@@ -411,8 +418,8 @@ void inline_redraw(inline_editor *edit) {
         if (i == sel_r) write(STDOUT_FILENO, "\x1b[0m", 4); // Turn off inverse video 
 
         // Write grapheme
-        size_t start = edit->graphemes[i];
-        size_t end   = ((i + 1 < edit->grapheme_count) ? edit->graphemes[i + 1] : edit->buffer_len);
+        size_t start, end;
+        inline_graphemerange(edit, i, &start, &end);
         write(STDOUT_FILENO, edit->buffer + start, end - start);
     }
 
@@ -622,26 +629,52 @@ bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
     return true;
 }
 
-/** Helper to delete a grapheme at a given index */
-static void inline_deletegrapheme(inline_editor *edit, int index) {
-    if (index < 0 || index >= edit->grapheme_count) return;
+/** Helper to delete bytes [ start, end ) in the buffer */
+static void inline_deletebytes(inline_editor *edit, size_t start, size_t end) {
+    if (start >= end || end > edit->buffer_len) return;
 
-    size_t start = edit->graphemes[index]; // Byte offset of the grapheme to delete
-    size_t end = (index + 1 < edit->grapheme_count) ? edit->graphemes[index + 1] : edit->buffer_len;
     size_t bytes = end - start;
-
-    memmove(edit->buffer + start, edit->buffer + end, edit->buffer_len - end); // Move text afterwards 
-
+    memmove(edit->buffer + start, edit->buffer + end, edit->buffer_len - end); // Move subsequent text
     edit->buffer_len -= bytes;
+
     edit->buffer[edit->buffer_len] = '\0'; // Ensure null termination
 
     inline_recomputegraphemes(edit);
     edit->refresh = true;
 }
 
+/** Helper to delete a grapheme at a given index */
+static void inline_deletegrapheme(inline_editor *edit, int index) {
+    if (index < 0 || index >= edit->grapheme_count) return;
+
+    size_t start, end;
+    inline_graphemerange(edit, index, &start, &end);
+    inline_deletebytes(edit, start, end);
+}
+
+void inline_deleteselection(inline_editor *edit) {
+    if (edit->selection_posn == INLINE_NO_SELECTION) return;
+
+    // Find left and right bounds of the selection
+    int sel_l = imin(edit->selection_posn, edit->cursor_posn);
+    int sel_r = imax(edit->selection_posn, edit->cursor_posn);
+
+    // Convert grapheme indices to byte offsets
+    size_t start, end;
+    inline_graphemerange(edit, sel_l, &start, NULL);
+    inline_graphemerange(edit, sel_r, NULL, &end);
+
+    inline_deletebytes(edit, start, end); // Delete the selection
+
+    edit->cursor_posn = sel_l; // Cursor moves to start of deleted region
+    edit->selection_posn = INLINE_NO_SELECTION; // Clear selection
+}
+
 /** Delete text from the buffer */
 void inline_delete(inline_editor *edit) {
-    if (edit->cursor_posn > 0) { // Delete grapheme before cursor 
+    if (edit->selection_posn != INLINE_NO_SELECTION) {
+        inline_deleteselection(edit);
+    } else if (edit->cursor_posn > 0) { // Delete grapheme before cursor 
         inline_deletegrapheme(edit, edit->cursor_posn - 1);
         edit->cursor_posn -= 1;
     } else if (edit->cursor_posn < edit->grapheme_count) { // Delete grapheme under cursor if at start of line
