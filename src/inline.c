@@ -43,8 +43,8 @@ typedef struct inline_editor {
     int ncols;                            // Number of columns
 
     char *buffer;                         // Buffer holding UTF8
-    size_t buffer_len;                    // Length of contents
-    size_t buffer_size;                   // Size of buffer allocated
+    size_t buffer_len;                    // Length of contents in bytes
+    size_t buffer_size;                   // Size of buffer allocated in bytes
 
     size_t *graphemes;                    // Offset to each grapheme
     int grapheme_count;                   // Number of graphemes
@@ -336,9 +336,21 @@ bool inline_extendbufferby(inline_editor *edit, size_t extra) {
     return true;
 }
 
+/* ----------------------------------------
+ * Grapheme buffer
+ * ---------------------------------------- */
+
+bool inline_recomputegraphemes(inline_editor *edit) {
+    return true; 
+}
+
 /* **********************************************************************
  * Rendering
  * ********************************************************************** */
+
+void inline_redraw(inline_editor *edit) {
+
+}
 
 /* **********************************************************************
  * Keypress decoding
@@ -379,13 +391,13 @@ typedef struct {
     int nbytes; /** Number of bytes */
 } keypress_t;
 
-void linedit_keypressunknown(keypress_t *keypress) {
+void inline_keypressunknown(keypress_t *keypress) {
     keypress->type=KEY_UNKNOWN; 
     keypress->c[0]='\0'; 
     keypress->nbytes=0; 
 }
 
-void linedit_keypresswithchar(keypress_t *keypress, keytype_t type, char c) {
+void inline_keypresswithchar(keypress_t *keypress, keytype_t type, char c) {
     keypress->type=type; 
     keypress->c[0]=c; keypress->c[1]='\0';
     keypress->nbytes=1; 
@@ -470,11 +482,10 @@ enum keycodes {
 
 /** Decode raw input units into a keypress */
 static void inline_decode(const rawinput_t *raw, keypress_t *out) {
-    linedit_keypressunknown(out); // Initially UNKNOWN
+    inline_keypressunknown(out); // Initially UNKNOWN
     unsigned char b = *raw;
 
-    // 1. Control keys (ASCII control range or DEL)
-    if (b < 32 || b == DELETE_CODE) {
+    if (b < 32 || b == DELETE_CODE) { // Control keys (ASCII control range or DEL)
         switch (b) {
             case TAB_CODE:    out->type = KEY_TAB; return;
             case RETURN_CODE: out->type = KEY_RETURN; return;
@@ -485,19 +496,17 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
                 return;
 
             default: // Control codes are Ctrl+A → 1, Ctrl+Z → 26 
-                if (b >= 1 && b <= 26) linedit_keypresswithchar(out, KEY_CTRL, 'A' + (b - 1));
+                if (b >= 1 && b <= 26) inline_keypresswithchar(out, KEY_CTRL, 'A' + (b - 1));
                 return;
         }
     }
 
-    // 2. ASCII regular characters
-    if (b < 128) {
-        linedit_keypresswithchar(out, KEY_CHARACTER, b);
+    if (b < 128) { // ASCII regular character
+        inline_keypresswithchar(out, KEY_CHARACTER, b);
         return;
     }
 
-    // 3. UTF‑8 multi‑byte 
-    inline_decode_utf8(b, out);
+    inline_decode_utf8(b, out); // UTF8
 }
 
 /** Obtain a keypress event */
@@ -512,6 +521,37 @@ bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
  * Input loop
  * ********************************************************************** */
 
+/** Insert text into the buffer */
+bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
+    if (!inline_extendbufferby(edit, nbytes)) return false; // Ensure capacity 
+
+    size_t offset = 0; // Obtain the byte offset of the current cursor position
+    if (edit->cursor_posn < edit->grapheme_count) offset = edit->graphemes[edit->cursor_posn];
+    else offset = edit->buffer_len; 
+
+    // Move contents after the insertion point to make room for the inserted dat
+    memmove(edit->buffer + offset + nbytes, edit->buffer + offset, edit->buffer_len - offset);
+
+    memcpy(edit->buffer + offset, bytes, nbytes); // Copy new text into buffer
+    edit->buffer_len += nbytes;
+    edit->buffer[edit->buffer_len] = '\0'; // Ensure null-terminated
+
+    int old_count = edit->grapheme_count; // Save grapheme count
+    
+    inline_recomputegraphemes(edit); 
+
+    int inserted_count = edit->grapheme_count - old_count; 
+    edit->cursor_posn += (inserted_count > 0? inserted_count : 0); // Move cursor forward by number of graphemes
+    if (edit->cursor_posn > edit->grapheme_count) edit->cursor_posn = edit->grapheme_count;
+
+    edit->refresh = true; // Redraw
+
+    return true;
+}
+
+void inline_delete(inline_editor *edit) {
+}
+
 void inline_home(inline_editor *edit) {
 }
 
@@ -522,6 +562,12 @@ void inline_left(inline_editor *edit) {
 }
 
 void inline_right(inline_editor *edit) {
+}
+
+void inline_historyprev(inline_editor *edit) {
+}
+
+void inline_historynext(inline_editor *edit) {
 }
 
 bool inline_processshortcut(inline_editor *edit, char c) {
@@ -540,9 +586,9 @@ bool inline_processshortcut(inline_editor *edit, char c) {
     return true;
 }
 
-bool inline_processkeypress(inline_editor *edit, keypress_t *key) {
+bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     switch (key->type) {
-        case KEY_RETURN: inline_commit(edit);       return false;
+        case KEY_RETURN: return; 
         case KEY_LEFT:   inline_left(edit);         break;
         case KEY_RIGHT:  inline_right(edit);        break;
         case KEY_UP:     inline_historyprev(edit);  break;
@@ -553,7 +599,7 @@ bool inline_processkeypress(inline_editor *edit, keypress_t *key) {
         case KEY_CTRL:   
             return inline_processshortcut(edit, key->c[0]);
         case KEY_CHARACTER: 
-            inline_insert(edit, key->c, key->nbytes);
+            if (!inline_insert(edit, key->c, key->nbytes)) return false; 
             break;
         default:
             break;
