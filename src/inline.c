@@ -512,64 +512,56 @@ bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
  * Input loop
  * ********************************************************************** */
 
-/*
-bool inline_processkeypress(inline_editor *edit) {
-    key_event key;
-    bool regen_suggestions = true;
+void inline_home(inline_editor *edit) {
+}
 
-    inline_keyinit(&key);
+void inline_end(inline_editor *edit) {
+}
 
-    do {
-        if (!inline_readkey(edit, &key))
-            continue;
+void inline_left(inline_editor *edit) {
+}
 
-        switch (key.type) {
+void inline_right(inline_editor *edit) {
+}
 
-        case KEY_CHARACTER:
-            inline_handle_character(edit, &key);
+bool inline_processshortcut(inline_editor *edit, char c) {
+    switch (c) {
+        case 'A': inline_home(edit); break;
+        case 'E': inline_end(edit); break;
+        case 'B': inline_left(edit); break;
+        case 'F': inline_right(edit); break;
+        /*case 'K': inline_kill_to_end(edit); break;
+        case 'U': inline_kill_to_start(edit); break;
+        case 'W': inline_delete_prev_word(edit); break;*/
+        case 'C': return false; // exit on Ctrl-C
+        default: break;
+    }
+    edit->refresh = true;
+    return true;
+}
+
+bool inline_processkeypress(inline_editor *edit, keypress_t *key) {
+    switch (key->type) {
+        case KEY_RETURN: inline_commit(edit);       return false;
+        case KEY_LEFT:   inline_left(edit);         break;
+        case KEY_RIGHT:  inline_right(edit);        break;
+        case KEY_UP:     inline_historyprev(edit);  break;
+        case KEY_DOWN:   inline_historynext(edit);  break;
+        case KEY_HOME:   inline_home(edit);         break;
+        case KEY_END:    inline_end(edit);          break;
+        case KEY_DELETE: inline_delete(edit);       break;
+        case KEY_CTRL:   
+            return inline_processshortcut(edit, key->c[0]);
+        case KEY_CHARACTER: 
+            inline_insert(edit, key->c, key->nbytes);
             break;
-
-        case KEY_DELETE:
-            inline_handle_delete(edit);
-            break;
-
-        case KEY_LEFT:
-        case KEY_RIGHT:
-        case KEY_SHIFT_LEFT:
-        case KEY_SHIFT_RIGHT:
-            inline_handle_arrow(edit, key.type);
-            break;
-
-        case KEY_UP:
-        case KEY_DOWN:
-            inline_handle_vertical(edit, key.type, &regen_suggestions);
-            break;
-
-        case KEY_RETURN:
-            if (!inline_handle_return(edit))
-                return false;
-            break;
-
-        case KEY_TAB:
-            inline_handle_tab(edit, &regen_suggestions);
-            break;
-
-        case KEY_CTRL:
-            if (!inline_handle_ctrl(edit, &key))
-                return false;
-            break;
-
         default:
             break;
-        }
+    }
 
-    } while (inline_keypressavailable());
-
-    if (regen_suggestions)
-        inline_generatesuggestions(edit);
-
+    edit->refresh = true;
     return true;
-}*/
+}
 
 /* **********************************************************************
  * Interface
@@ -604,46 +596,19 @@ void inline_unsupported(inline_editor *edit) {
 
 /** Normal interface if terminal recognized */
 void inline_supported(inline_editor *edit) {
-    printf("Keypress test.\n");
-
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
-
-    printf("Type!\n");
-
+    
     inline_updateterminalwidth(edit);
 
-    while (true) {
-        keypress_t k;
+    keypress_t key;
+    while (inline_readkeypress(edit, &key)) {
+        if (!inline_processkeypress(edit, &key)) break;
 
-        if (!inline_readkeypress(edit, &k))
-            continue;
-
-        if (k.type == KEY_CTRL && k.c[0] == 'C') {
-            printf("Ctrl-C detected, exiting.\n");
-            break;
+        if (edit->refresh) { 
+            inline_redraw(edit); 
+            edit->refresh = false; 
         }
-
-        printf("type=%d", k.type);
-
-        if (k.type == KEY_CHARACTER || k.type == KEY_CTRL) {
-            printf(" char=\"%s\" bytes=%d", k.c, k.nbytes);
-        }
-
-        printf("\n");
-        fflush(stdout);
     }
-
-    //edit->cursor_grapheme = 0;   /* Start at beginning */
-    //edit->cursor_byte     = 0;
-
-    /*inline_redraw(edit);
-
-    for (;;) {
-        int key = inline_read_keypress();
-        if (!inline_process_keypress(edit, key)) break; // User pressed Enter, Ctrl-D, etc. 
-
-        inline_redraw(edit);
-    }*/
 
     inline_disablerawmode(edit);
 
