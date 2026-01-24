@@ -662,7 +662,7 @@ void inline_deleteselection(inline_editor *edit) {
     // Convert grapheme indices to byte offsets
     size_t start, end;
     inline_graphemerange(edit, sel_l, &start, NULL);
-    inline_graphemerange(edit, sel_r, NULL, &end);
+    inline_graphemerange(edit, sel_r, &end, NULL); 
 
     inline_deletebytes(edit, start, end); // Delete the selection
 
