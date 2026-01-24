@@ -48,6 +48,7 @@ typedef struct inline_editor {
 
     size_t *graphemes;                    // Offset to each grapheme
     int grapheme_count;                   // Number of graphemes
+    size_t grapheme_size;                 // Size of grapheme buffer in bytes
     
     int cursor_posn;                      // Position of cursor in graphemes
 
@@ -340,8 +341,31 @@ bool inline_extendbufferby(inline_editor *edit, size_t extra) {
  * Grapheme buffer
  * ---------------------------------------- */
 
-bool inline_recomputegraphemes(inline_editor *edit) {
-    return true; 
+/** Compute grapheme locations - Temporary implementation */
+void inline_recomputegraphemes(inline_editor *edit) {
+    int needed = (int)edit->buffer_len; // Assume 1 byte per character
+
+    size_t required_bytes = needed * sizeof(size_t); // Ensure capacity
+    if (required_bytes > edit->grapheme_size) {
+        size_t newsize = edit->grapheme_size ? edit->grapheme_size : INLINE_DEFAULT_BUFFER_SIZE;
+        while (newsize < required_bytes) newsize *= 2;
+
+        size_t *new = realloc(edit->graphemes, newsize);
+        if (!new) {
+            edit->graphemes = NULL;
+            edit->grapheme_count = 0;
+            edit->grapheme_size = 0;
+            return;
+        }
+
+        edit->graphemes = new;
+        edit->grapheme_size = newsize;
+    }
+
+    // Fill offsets ASCII placeholder: each byte is one grapheme 
+    for (int i = 0; i < needed; i++) edit->graphemes[i] = (size_t)i;
+
+    edit->grapheme_count = needed;
 }
 
 /* **********************************************************************
