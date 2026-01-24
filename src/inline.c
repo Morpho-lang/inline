@@ -386,7 +386,29 @@ void inline_recomputegraphemes(inline_editor *edit) {
  * ********************************************************************** */
 
 void inline_redraw(inline_editor *edit) {
+    // 1. Move cursor to start of line
+    write(STDOUT_FILENO, "\r", 1);
 
+    // 2. Write prompt
+    int prompt_len = strlen(edit->prompt);
+    write(STDOUT_FILENO, edit->prompt, prompt_len);
+
+    // 3. Write buffer
+    write(STDOUT_FILENO, edit->buffer, edit->buffer_len);
+
+    // 4. Clear to end of line (in case previous render was longer)
+    write(STDOUT_FILENO, "\x1b[K", 3);
+
+    // 5. Move cursor to correct position
+    size_t col = prompt_len;
+    for (int i = 0; i < edit->cursor_posn; i++) {
+        col += 1; // minimal version: assume width=1
+    }
+
+    // Move cursor to column `col`
+    char seq[32];
+    int n = snprintf(seq, sizeof(seq), "\r\x1b[%zuC", col);
+    write(STDOUT_FILENO, seq, n);
 }
 
 /* **********************************************************************
@@ -673,6 +695,7 @@ void inline_supported(inline_editor *edit) {
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
     
     inline_updateterminalwidth(edit);
+    inline_redraw(edit);
 
     keypress_t key;
     while (inline_readkeypress(edit, &key)) {
