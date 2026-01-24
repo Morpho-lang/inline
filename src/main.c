@@ -16,7 +16,7 @@ int main(void) {
     char *line = inline_readline(ed);
 
     if (line) {
-        printf("You entered: %s\n", line);
+        printf("You entered: '%s'\n", line);
     } else {
         printf("inline_readline returned NULL.\n");
     }

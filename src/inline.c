@@ -579,7 +579,7 @@ bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
     if (edit->cursor_posn < edit->grapheme_count) offset = edit->graphemes[edit->cursor_posn];
     else offset = edit->buffer_len; 
 
-    // Move contents after the insertion point to make room for the inserted dat
+    // Move contents after the insertion point to make room for the inserted text
     memmove(edit->buffer + offset + nbytes, edit->buffer + offset, edit->buffer_len - offset);
 
     memcpy(edit->buffer + offset, bytes, nbytes); // Copy new text into buffer
@@ -598,29 +598,34 @@ bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
     return true;
 }
 
-void inline_delete(inline_editor *edit) {
-    if (edit->cursor_posn >= edit->grapheme_count) return; // End of line, so nothing to do
+/** Helper to delete a grapheme at a given index */
+static void inline_deletegrapheme(inline_editor *edit, int index) {
+    if (index < 0 || index >= edit->grapheme_count) return;
 
-    // Byte offset of the grapheme to delete
-    size_t start = edit->graphemes[edit->cursor_posn];
+    size_t start = edit->graphemes[index]; // Byte offset of the grapheme to delete
+    size_t end = (index + 1 < edit->grapheme_count) ? edit->graphemes[index + 1] : edit->buffer_len;
+    size_t bytes = end - start;
 
-    // Byte offset of the next grapheme (or end of buffer)
-    size_t end;
-    if (edit->cursor_posn + 1 < edit->grapheme_count) end = edit->graphemes[edit->cursor_posn + 1];
-    else end = edit->buffer_len;
+    memmove(edit->buffer + start, edit->buffer + end, edit->buffer_len - end); // Move text afterwards 
 
-    size_t bytes_to_delete = end - start;
-
-    // Shift the remaining bytes left
-    memmove(edit->buffer + start, edit->buffer + end, edit->buffer_len - end);
-
-    edit->buffer_len -= bytes_to_delete;
-    edit->buffer[edit->buffer_len] = '\0';
+    edit->buffer_len -= bytes;
+    edit->buffer[edit->buffer_len] = '\0'; // Ensure null termination
 
     inline_recomputegraphemes(edit);
     edit->refresh = true;
 }
 
+/** Delete text from the buffer */
+void inline_delete(inline_editor *edit) {
+    if (edit->cursor_posn > 0) { // Delete grapheme before cursor 
+        inline_deletegrapheme(edit, edit->cursor_posn - 1);
+        edit->cursor_posn -= 1;
+    } else if (edit->cursor_posn < edit->grapheme_count) { // Delete grapheme under cursor if at start of line
+        inline_deletegrapheme(edit, edit->cursor_posn);
+    }
+}
+
+/** Navigation keys */
 void inline_home(inline_editor *edit) {
     if (edit->cursor_posn != 0) {
         edit->cursor_posn = 0;
