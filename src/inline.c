@@ -390,21 +390,40 @@ void inline_recomputegraphemes(inline_editor *edit) {
  * Rendering
  * ********************************************************************** */
 
-void inline_redraw(inline_editor *edit) {
-    // 1. Move cursor to start of line
-    write(STDOUT_FILENO, "\r", 1);
+static inline int imin(int a, int b) { return a < b ? a : b; }
+static inline int imax(int a, int b) { return a > b ? a : b; }
 
-    // 2. Write prompt
-    int prompt_len = strlen(edit->prompt);
+void inline_redraw(inline_editor *edit) {
+    write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
+
+    int prompt_len = strlen(edit->prompt); // Write prompt
     write(STDOUT_FILENO, edit->prompt, prompt_len);
 
-    // 3. Write buffer
-    write(STDOUT_FILENO, edit->buffer, edit->buffer_len);
+    // Compute selection bounds, if a selection is active
+    int sel_l = INLINE_NO_SELECTION, sel_r = INLINE_NO_SELECTION;
+    if (edit->selection_posn != INLINE_NO_SELECTION) {
+        sel_l = imin(edit->selection_posn, edit->cursor_posn);
+        sel_r = imax(edit->selection_posn, edit->cursor_posn);
+    }
 
-    // 4. Clear to end of line (in case previous render was longer)
+    for (int i = 0; i < edit->grapheme_count; i++) {
+        if (i == sel_l) write(STDOUT_FILENO, "\x1b[7m", 4); // Turn on inverse video
+        if (i == sel_r) write(STDOUT_FILENO, "\x1b[0m", 4); // Turn off inverse video 
+
+        // Write grapheme
+        size_t start = edit->graphemes[i];
+        size_t end   = ((i + 1 < edit->grapheme_count) ? edit->graphemes[i + 1] : edit->buffer_len);
+        write(STDOUT_FILENO, edit->buffer + start, end - start);
+    }
+
+    // If selection extends to end, ensure attributes reset
+    if (sel_l != INLINE_NO_SELECTION && sel_r == edit->grapheme_count)
+        write(STDOUT_FILENO, "\x1b[0m", 4);
+
+    // Clear to end of line (in case previous render was longer)
     write(STDOUT_FILENO, "\x1b[K", 3);
 
-    // 5. Move cursor to correct position
+    // Move cursor to correct position
     size_t col = prompt_len;
     for (int i = 0; i < edit->cursor_posn; i++) {
         col += 1; // minimal version: assume width=1
@@ -690,9 +709,6 @@ bool inline_processshortcut(inline_editor *edit, char c) {
         case 'B': inline_left(edit); break;
         case 'F': inline_right(edit); break;
         case 'L': inline_clear(edit); break; 
-        /*case 'K': inline_kill_to_end(edit); break;
-        case 'U': inline_kill_to_start(edit); break;
-        case 'W': inline_delete_prev_word(edit); break;*/
         case 'G': return false; // exit on Ctrl-G
         default: break;
     }
