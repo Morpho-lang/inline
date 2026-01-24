@@ -595,23 +595,58 @@ bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
     if (edit->cursor_posn > edit->grapheme_count) edit->cursor_posn = edit->grapheme_count;
 
     edit->refresh = true; // Redraw
-
     return true;
 }
 
 void inline_delete(inline_editor *edit) {
+    if (edit->cursor_posn >= edit->grapheme_count) return; // End of line, so nothing to do
+
+    // Byte offset of the grapheme to delete
+    size_t start = edit->graphemes[edit->cursor_posn];
+
+    // Byte offset of the next grapheme (or end of buffer)
+    size_t end;
+    if (edit->cursor_posn + 1 < edit->grapheme_count) end = edit->graphemes[edit->cursor_posn + 1];
+    else end = edit->buffer_len;
+
+    size_t bytes_to_delete = end - start;
+
+    // Shift the remaining bytes left
+    memmove(edit->buffer + start, edit->buffer + end, edit->buffer_len - end);
+
+    edit->buffer_len -= bytes_to_delete;
+    edit->buffer[edit->buffer_len] = '\0';
+
+    inline_recomputegraphemes(edit);
+    edit->refresh = true;
 }
 
 void inline_home(inline_editor *edit) {
+    if (edit->cursor_posn != 0) {
+        edit->cursor_posn = 0;
+        edit->refresh = true;
+    }
 }
 
 void inline_end(inline_editor *edit) {
+    if (edit->cursor_posn != edit->grapheme_count) {
+        edit->cursor_posn = edit->grapheme_count;
+        edit->refresh = true;
+    }
 }
 
 void inline_left(inline_editor *edit) {
+    if (edit->cursor_posn > 0) {
+        edit->cursor_posn -= 1;
+        edit->refresh = true;
+    }
 }
 
 void inline_right(inline_editor *edit) {
+    if (edit->cursor_posn < edit->grapheme_count) {
+        edit->cursor_posn += 1;
+        edit->refresh = true;
+    }
 }
 
 void inline_historyprev(inline_editor *edit) {
