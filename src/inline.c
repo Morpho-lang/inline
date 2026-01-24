@@ -24,6 +24,8 @@
 #define INLINE_DEFAULT_BUFFER_SIZE 128
 #define INLINE_DEFAULT_PROMPT ">"
 
+#define INLINE_NO_SELECTION -1 
+
 // Forward declarations
 static char *inline_strdup(const char *s); 
 void inline_disablerawmode(inline_editor *edit);
@@ -51,6 +53,7 @@ typedef struct inline_editor {
     size_t grapheme_size;                 // Size of grapheme buffer in bytes
     
     int cursor_posn;                      // Position of cursor in graphemes
+    int selection_posn;                   // Selection posn in graphemes 
 
     inline_syntaxcolorfn syntax_fn;       // Syntax coloring callback
     void *syntax_ref;                     // User reference
@@ -98,6 +101,8 @@ inline_editor *inline_new(const char *prompt) {
 
     editor->buffer[0] = '\0'; // Ensure zero terminated
     editor->buffer_len = 0;
+
+    editor->selection_posn = INLINE_NO_SELECTION; // No selection
 
     return editor;
 
@@ -663,6 +668,15 @@ void inline_right(inline_editor *edit) {
     }
 }
 
+/** Selection */
+void inline_beginselection(inline_editor *edit) {
+    if (edit->selection_posn==INLINE_NO_SELECTION) edit->selection_posn = edit->cursor_posn;
+}
+
+void inline_clearselection(inline_editor *edit) {
+    edit->selection_posn=INLINE_NO_SELECTION;
+}
+
 void inline_historyprev(inline_editor *edit) {
 }
 
@@ -689,8 +703,22 @@ bool inline_processshortcut(inline_editor *edit, char c) {
 bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     switch (key->type) {
         case KEY_RETURN: return false; 
-        case KEY_LEFT:   inline_left(edit);         break;
-        case KEY_RIGHT:  inline_right(edit);        break;
+        case KEY_LEFT:   
+            inline_clearselection(edit);
+            inline_left(edit);         
+            break;
+        case KEY_RIGHT:  
+            inline_clearselection(edit);
+            inline_right(edit);        
+            break;
+        case KEY_SHIFT_LEFT: 
+            inline_beginselection(edit);
+            inline_left(edit);
+            break; 
+        case KEY_SHIFT_RIGHT: 
+            inline_beginselection(edit);
+            inline_right(edit);
+            break; 
         case KEY_UP:     inline_historyprev(edit);  break;
         case KEY_DOWN:   inline_historynext(edit);  break;
         case KEY_HOME:   inline_home(edit);         break;
