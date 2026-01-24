@@ -341,9 +341,18 @@ bool inline_extendbufferby(inline_editor *edit, size_t extra) {
  * Grapheme buffer
  * ---------------------------------------- */
 
+/** Determine length of utf8 character from the first byte */
+static inline int inline_utf8length(unsigned char b) {
+    if ((b & 0x80) == 0x00) return 1;      // 0xxxxxxx
+    if ((b & 0xE0) == 0xC0) return 2;      // 110xxxxx
+    if ((b & 0xF0) == 0xE0) return 3;      // 1110xxxx
+    if ((b & 0xF8) == 0xF0) return 4;      // 11110xxx
+    return 0;                              // Invalid or continuation
+}
+
 /** Compute grapheme locations - Temporary implementation */
 void inline_recomputegraphemes(inline_editor *edit) {
-    int needed = (int)edit->buffer_len; // Assume 1 byte per character
+    int needed = (int)edit->buffer_len; // Assume 1 byte per character as a worst case. 
 
     size_t required_bytes = needed * sizeof(size_t); // Ensure capacity
     if (required_bytes > edit->grapheme_size) {
@@ -362,8 +371,12 @@ void inline_recomputegraphemes(inline_editor *edit) {
         edit->grapheme_size = newsize;
     }
 
-    // Fill offsets ASCII placeholder: each byte is one grapheme 
-    for (int i = 0; i < needed; i++) edit->graphemes[i] = (size_t)i;
+    // Walk the buffer and record codepoint boundaries  
+    int count = 0;
+    for (size_t i = 0; i < edit->buffer_len; ) {
+        edit->graphemes[count++] = i;
+        i += inline_utf8length((unsigned char)edit->buffer[i]);
+    }
 
     edit->grapheme_count = needed;
 }
@@ -469,15 +482,6 @@ static void inline_decode_escape(keypress_t *out) {
             return;
         }
     }
-}
-
-/** Determine length of utf8 character from the first byte */
-static inline int inline_utf8length(unsigned char b) {
-    if ((b & 0x80) == 0x00) return 1;      // 0xxxxxxx
-    if ((b & 0xE0) == 0xC0) return 2;      // 110xxxxx
-    if ((b & 0xF0) == 0xE0) return 3;      // 1110xxxx
-    if ((b & 0xF8) == 0xF0) return 4;      // 11110xxx
-    return 0;                              // Invalid or continuation
 }
 
 /** Decode sequence of characters into a utf8 character */
