@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <io.h>
 #include <conio.h>
+#define read _read
+#define STDIN_FILENO 0
 #else
 #include <termios.h>
 #include <unistd.h>
@@ -216,17 +218,12 @@ void inline_updateterminalwidth(inline_editor *edit) {
  * Handle crashes
  * ---------------------------------------- */
 
+#ifndef _WIN32
 /** Exit handler called on crashes */
 static void inline_emergencyrestore(void) {
     if (inline_lasteditor) inline_disablerawmode(inline_lasteditor);
 }
 
-#ifdef _WIN32
-static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
-    inline_emergencyrestore();
-    return FALSE; // allow default behavior 
-}
-#else 
 static void inline_signalhandler(int sig, siginfo_t *info, void *ucontext) {
     if (sig == SIGWINCH) {
         if (inline_lasteditor) inline_lasteditor->refresh = true;
@@ -240,15 +237,12 @@ static void inline_signalhandler(int sig, siginfo_t *info, void *ucontext) {
 
 /** Register emergency exit and signal handlers */
 static void inline_registeremergencyhandlers(void) {
-    static bool registered = false; 
+#ifndef _WIN32 
+static bool registered = false; 
     if (registered) return; 
     registered=true;
-
     atexit(inline_emergencyrestore);
 
-#ifdef _WIN32
-    SetConsoleCtrlHandler(inline_consolehandler, TRUE);
-#else 
     const int sigs[] = { // List of signals to respond to
         SIGINT, SIGTERM, SIGQUIT, SIGHUP, SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE, SIGWINCH
     };
@@ -271,17 +265,7 @@ static void inline_registeremergencyhandlers(void) {
 bool inline_enablerawmode(inline_editor *edit) {
     if (edit->rawmode_enabled) return true;
 
-#ifdef _WIN32
-    HANDLE hConsole = GetStdHandle(STD_INPUT_HANDLE);
-    if (!GetConsoleMode(hConsole, &edit->termstate)) return false; 
-    if (!SetConsoleMode(hConsole, (edit->termstate & ~(ENABLE_LINE_INPUT |
-                                      ENABLE_ECHO_INPUT | 
-                                      ENABLE_PROCESSED_INPUT) |
-                                      ENABLE_VIRTUAL_TERMINAL_INPUT ))) return false;
-
-    SetConsoleOutputCP(CP_UTF8); // Enable utf8 input/output
-    SetConsoleCP(CP_UTF8);
-#else
+#ifndef _WIN32 // Note modern windows with ConPTY is in raw mode by default. 
     if (tcgetattr(STDIN_FILENO, &edit->termstate) == -1) return false;
 
     struct termios raw = edit->termstate;
@@ -315,15 +299,11 @@ bool inline_enablerawmode(inline_editor *edit) {
 void inline_disablerawmode(inline_editor *edit) {
     if (!edit || !edit->rawmode_enabled) return;
 
-#ifdef _WIN32
-    HANDLE hConsole = GetStdHandle(STD_INPUT_HANDLE);
-    SetConsoleMode(hConsole, edit->termstate);
-#else
+#ifndef _WIN32
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &edit->termstate);
 #endif
 
     fputs("\r", stdout); // Print a carriage return to ensure we're back on the left hand side
-
     edit->rawmode_enabled = false;
 }
 
@@ -372,38 +352,12 @@ bool inline_extendbufferby(inline_editor *edit, size_t extra) {
  * ---------------------------------------- */
 
 /** Type that represents a single unit of input */
-#ifdef _WIN32
-typedef INPUT_RECORD rawinput_t;
-#else 
 typedef unsigned char rawinput_t;
-#endif
 
 /** Await a single raw unit of input and store in a rawinput_t */
 bool inline_readraw(rawinput_t *out) {
-#ifdef _WIN32
-    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD count = 0;
-
-    while (true) {
-        if (!ReadConsoleInputW(hIn, out, 1, &count)) return false;
-
-        switch (out->EventType) {
-            case KEY_EVENT:
-                if (out->Event.KeyEvent.bKeyDown) return true;
-                break;
-
-            case WINDOW_BUFFER_SIZE_EVENT:
-                if (inline_lasteditor) inline_lasteditor->refresh = true;
-                break;
-
-            default: // Ignore mouse, menu, focus events
-                break;
-        }
-    }
-#else
-    ssize_t n = read(STDIN_FILENO, out, 1);
+    size_t n = read(STDIN_FILENO, out, 1);
     return n == 1;
-#endif
 }
 
 /* ----------------------------------------
@@ -439,80 +393,6 @@ void linedit_keypresswithchar(keypress_t *keypress, keytype_t type, char c) {
     keypress->c[0]=c; keypress->c[1]='\0';
     keypress->nbytes=1; 
 }
-
-#ifdef _WIN32
-/** Windows version: */
-
-/** Map from windows codes to keytype_t  */
-typedef struct {
-    WORD vk;          /* Virtual-key code */
-    keytype_t type;   /* Our internal key type */
-} winmap_t;
-
-static const winmap_t win_table[] = {
-    { VK_LEFT,      KEY_LEFT },
-    { VK_RIGHT,     KEY_RIGHT },
-    { VK_UP,        KEY_UP },
-    { VK_DOWN,      KEY_DOWN },
-    { VK_HOME,      KEY_HOME },
-    { VK_END,       KEY_END },
-    { VK_PRIOR,     KEY_PAGE_UP },
-    { VK_NEXT,      KEY_PAGE_DOWN },
-    { VK_TAB,       KEY_TAB },
-    { VK_RETURN,    KEY_RETURN },
-    { VK_BACK,      KEY_DELETE }
-};
-
-/** Decode raw input units into a keypress */
-static void inline_decode(const rawinput_t *raw, keypress_t *out) {
-    linedit_keypressunknown(out);
-
-    const KEY_EVENT_RECORD *ev = &raw->Event.KeyEvent;
-    if (!ev->bKeyDown) return; // Ignore key-up events 
-
-    WCHAR wc = ev->uChar.UnicodeChar;
-
-    // 1. Unicode characters
-    if (wc >= 32 && wc != 127) {
-        int n = WideCharToMultiByte(CP_UTF8, 0, &wc, 1, out->c, sizeof(out->c), NULL, NULL);
-        if (n > 0) {
-            out->c[n] = '\0';
-            out->nbytes = n;
-            out->type = KEY_CHARACTER;
-        }
-        return;
-    }
-
-    // 2. "Virtual" keys incl. arrow keys, home, end, etc. 
-    for (size_t i = 0; i < sizeof(win_table)/sizeof(win_table[0]); i++) {
-        if (win_table[i].vk == ev->wVirtualKeyCode) {
-            out->type = win_table[i].type;
-            return;
-        }
-    }
-
-    // 3. Shift+Arrows 
-    if (ev->dwControlKeyState & SHIFT_PRESSED) {
-        switch (ev->wVirtualKeyCode) {
-            case VK_LEFT:
-                out->type = KEY_SHIFT_LEFT;
-                return;
-            case VK_RIGHT:
-                out->type = KEY_SHIFT_RIGHT;
-                return;
-        }
-    }
-
-    // 4. Ctrl+A → Ctrl+Z 
-    if (ev->dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
-        WCHAR c = ev->uChar.UnicodeChar;
-        if (c >= L'a' && c <= L'z') c -= 32; // Normalize to upper case
-        if (c >= L'A' && c <= L'Z') linedit_keypresswithchar(out, KEY_CTRL, (char) c);
-    }
-}
-
-#else 
-/** POSIX version:  */
 
 /** Map from terminal codes to keytype_t  */
 typedef struct {
@@ -622,7 +502,6 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
     // 3. UTF‑8 multi‑byte 
     inline_decode_utf8(b, out);
 }
-#endif // _WIN32 / POSIX decoder
 
 /** Obtain a keypress event */
 bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
@@ -728,19 +607,17 @@ void inline_unsupported(inline_editor *edit) {
 
 /** Normal interface if terminal recognized */
 void inline_supported(inline_editor *edit) {
-    DWORD mode;
-    BOOL ok = GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode);
-    printf("GetConsoleMode = %d\n", ok);
+    printf("Keypress test.\n");
 
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
 
-    DWORD type = GetFileType(GetStdHandle(STD_INPUT_HANDLE));
-    printf("FileType = %lu\n", type);
+    printf("Type!\n");
 
     inline_updateterminalwidth(edit);
 
     while (true) {
         keypress_t k;
+
         if (!inline_readkeypress(edit, &k))
             continue;
 
@@ -756,6 +633,7 @@ void inline_supported(inline_editor *edit) {
         }
 
         printf("\n");
+        fflush(stdout);
     }
 
     //edit->cursor_grapheme = 0;   /* Start at beginning */
