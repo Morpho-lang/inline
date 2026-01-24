@@ -12,7 +12,9 @@
 #include <io.h>
 #include <conio.h>
 #define read _read
-#define STDIN_FILENO 0
+#define isatty _isatty
+#define STDIN_FILENO _fileno(stdin)
+#define STDOUT_FILENO _fileno(stdout)
 #else
 #include <termios.h>
 #include <unistd.h>
@@ -26,9 +28,7 @@
 static char *inline_strdup(const char *s); 
 void inline_disablerawmode(inline_editor *edit);
 
-#ifdef _WIN32
-typedef DWORD termstate_t;
-#else
+#ifndef _WIN32
 typedef struct termios termstate_t;
 #endif
 
@@ -66,8 +66,9 @@ typedef struct inline_editor {
 
     inline_multilinefn multiline_fn;      // Multiline callback
     void *multiline_ref;                  // User reference
-
+#ifndef _WIN32
     termstate_t termstate;                // Preserve terminal state 
+#endif 
     bool rawmode_enabled;                 // Record if rawmode has already been enabled
 
     int cursor_col;                       // current cursor column on screen
@@ -170,11 +171,7 @@ void inline_multiline(inline_editor *editor, inline_multilinefn fn, void *ref, c
 
 /** Check whether stdin and stdout are TTYs. */
 bool inline_checktty(void) {
-#ifdef _WIN32
-    return _isatty(_fileno(stdin)) && _isatty(_fileno(stdout));
-#else
     return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
-#endif
 }
 
 /** Check whether the terminal type is supported. */
