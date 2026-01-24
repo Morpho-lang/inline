@@ -616,7 +616,7 @@ bool inline_processshortcut(inline_editor *edit, char c) {
 
 bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     switch (key->type) {
-        case KEY_RETURN: return; 
+        case KEY_RETURN: return false; 
         case KEY_LEFT:   inline_left(edit);         break;
         case KEY_RIGHT:  inline_right(edit);        break;
         case KEY_UP:     inline_historyprev(edit);  break;
@@ -689,7 +689,7 @@ void inline_supported(inline_editor *edit) {
     /* Add to history if non-empty */
     // if (edit->buffer_len > 0) inline_history_add(edit, edit->buffer);
 
-    //inline_write_newline();
+    //write(STDOUT_FILENO, "\r\n", 2);
 }
 
 /** Public interface to the line editor.
