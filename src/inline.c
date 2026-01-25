@@ -60,10 +60,14 @@ typedef struct inline_editor {
     size_t buffer_len;                    // Length of contents in bytes
     size_t buffer_size;                   // Size of buffer allocated in bytes
 
+    char *clipboard;                      // Clipboard buffer
+    size_t clipboard_len;                 // Length of contents in bytes 
+    size_t clipboard_size;                // Size of clipboard in bytes
+
     size_t *graphemes;                    // Offset to each grapheme
     int grapheme_count;                   // Number of graphemes
     size_t grapheme_size;                 // Size of grapheme buffer in bytes
-    
+
     int cursor_posn;                      // Position of cursor in graphemes
     int selection_posn;                   // Selection posn in graphemes 
 
@@ -136,6 +140,7 @@ void inline_free(inline_editor *editor) {
 
     free(editor->buffer);
     free(editor->graphemes);
+    free(editor->clipboard);
 
     free(editor->spans);
     free(editor->palette);
@@ -354,6 +359,10 @@ void inline_disablerawmode(inline_editor *edit) {
  * Utility functions
  * ********************************************************************** */
 
+/** Min and max */
+static inline int imin(int a, int b) { return a < b ? a : b; }
+static inline int imax(int a, int b) { return a > b ? a : b; }
+
 /** Duplicate a string */
 static char *inline_strdup(const char *s) {
     if (!s) return NULL;
@@ -427,13 +436,6 @@ void inline_recomputegraphemes(inline_editor *edit) {
     edit->grapheme_count = count;
 }
 
-/* **********************************************************************
- * Rendering
- * ********************************************************************** */
-
-static inline int imin(int a, int b) { return a < b ? a : b; }
-static inline int imax(int a, int b) { return a > b ? a : b; }
-
 /** Finds the start and end of grapheme i in bytes */
 static inline void inline_graphemerange(inline_editor *edit, int i, size_t *start, size_t *end) {
     if (i < 0 || i >= edit->grapheme_count) { // Handle out of bounds access (incl. i representing end of line)
@@ -445,6 +447,59 @@ static inline void inline_graphemerange(inline_editor *edit, int i, size_t *star
     if (start) *start = edit->graphemes[i];
     if (end) *end = ((i + 1 < edit->grapheme_count) ? edit->graphemes[i + 1] : edit->buffer_len);
 }
+
+/* ----------------------------------------
+ * Selections
+ * ---------------------------------------- */
+
+/** Find the start and end points of a selection, if one is present.  */
+bool inline_selectionrange(inline_editor *edit, int *sel_l, int *sel_r, size_t *start, size_t *end) {
+    if (edit->selection_posn == INLINE_NO_SELECTION) return false;
+
+    int l = imin(edit->selection_posn, edit->cursor_posn);
+    int r = imax(edit->selection_posn, edit->cursor_posn);
+    
+    if (sel_l) *sel_l = l; 
+    if (sel_r) *sel_r = r; 
+    if (start) inline_graphemerange(edit, l, start, NULL);
+    if (end) inline_graphemerange(edit, r, end,   NULL);
+    
+    return true;
+}
+
+/* ----------------------------------------
+ * Clipboard
+ * ---------------------------------------- */
+
+/** Copies a string of given length onto the clipboard. */
+bool inline_copytoclipboard(inline_editor *edit, const char *string, size_t length) {
+    if (!string || length==0) { // Empty clipboard
+        if (edit->clipboard) edit->clipboard[0] = '\0';  
+        edit->clipboard_len = 0;
+        return true; 
+    }
+
+    size_t needed = length + 1; // Check if we have sufficient capacity and realloc if necessary
+    if (needed > edit->clipboard_size) { 
+        size_t newsize = edit->clipboard_size ? edit->clipboard_size : INLINE_DEFAULT_BUFFER_SIZE;
+        while (newsize < needed) newsize *= 2;
+
+        char *newbuf = realloc(edit->clipboard, newsize);
+        if (!newbuf) return false; // Leave clipboard unchanged on allocation failure
+
+        edit->clipboard = newbuf;
+        edit->clipboard_size = newsize;
+    }
+
+    memmove(edit->clipboard, string, length); // Copy onto clipboard
+    edit->clipboard[length] = '\0'; // Ensure null termination
+    edit->clipboard_len = length;
+    return true; 
+}
+
+/* **********************************************************************
+ * Rendering
+ * ********************************************************************** */
 
 /** Redraw the line */
 void inline_redraw(inline_editor *edit) {
@@ -701,17 +756,11 @@ static void inline_deletegrapheme(inline_editor *edit, int index) {
     inline_deletebytes(edit, start, end);
 }
 
+/** Deletes selected text */
 void inline_deleteselection(inline_editor *edit) {
-    if (edit->selection_posn == INLINE_NO_SELECTION) return;
-
-    // Find left and right bounds of the selection
-    int sel_l = imin(edit->selection_posn, edit->cursor_posn);
-    int sel_r = imax(edit->selection_posn, edit->cursor_posn);
-
-    // Convert grapheme indices to byte offsets
+    int sel_l; 
     size_t start, end;
-    inline_graphemerange(edit, sel_l, &start, NULL);
-    inline_graphemerange(edit, sel_r, &end, NULL); 
+    if (!inline_selectionrange(edit, &sel_l, NULL, &start, &end)) return;
 
     inline_deletebytes(edit, start, end); // Delete the selection
 
@@ -778,6 +827,28 @@ void inline_clearselection(inline_editor *edit) {
     edit->selection_posn=INLINE_NO_SELECTION;
 }
 
+/** Copy selected text */
+void inline_copyselection(inline_editor *edit) {
+    size_t start, end;
+    if (inline_selectionrange(edit, NULL, NULL, &start, &end)) 
+        inline_copytoclipboard(edit, edit->buffer + start, end - start);
+}
+
+/** Cut selected text */
+void inline_cutselection(inline_editor *edit) {
+    inline_copyselection(edit);
+    inline_deleteselection(edit);
+}
+
+/** Paste from clipboard */
+void inline_paste(inline_editor *edit) {
+    if (edit->clipboard && edit->clipboard_len>0) {
+        if (edit->selection_posn != INLINE_NO_SELECTION) inline_deleteselection(edit); // Replace selection
+        inline_insert(edit, edit->clipboard, edit->clipboard_len);
+    }
+}
+
+/** History */
 void inline_historyprev(inline_editor *edit) {
 }
 
@@ -787,11 +858,15 @@ void inline_historynext(inline_editor *edit) {
 bool inline_processshortcut(inline_editor *edit, char c) {
     switch (c) {
         case 'A': inline_home(edit); break;
-        case 'E': inline_end(edit); break;
         case 'B': inline_left(edit); break;
+        case 'C': inline_copyselection(edit); break; 
+        case 'E': inline_end(edit); break;
         case 'F': inline_right(edit); break;
-        case 'L': inline_clear(edit); break; 
         case 'G': return false; // exit on Ctrl-G
+        case 'L': inline_clear(edit); break; 
+        case 'X': inline_cutselection(edit); break; 
+        case 'Y': // v fallthrough
+        case 'V': inline_paste(edit); break; 
         default: break;
     }
     edit->refresh = true;
