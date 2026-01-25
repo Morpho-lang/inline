@@ -155,7 +155,7 @@ void inline_free(inline_editor *editor) {
     free(editor->graphemes);
     free(editor->clipboard);
 
-    inline_clearsuggestions(&editor->suggestions);
+    inline_clearsuggestions(editor);
 
     free(editor->spans);
     free(editor->palette);
@@ -582,7 +582,7 @@ void inline_clearsuggestions(inline_editor *edit) {
 void inline_generatesuggestions(inline_editor *edit) {
     if (!edit->complete_fn) return;
 
-    inline_clearsuggestions(&edit->suggestions);
+    inline_clearsuggestions(edit);
 
     if (edit->buffer && inline_atend(edit)) {
         for (int i = 0; ; i++) { // Iterate over suggestions
@@ -602,6 +602,11 @@ bool inline_havesuggestions(inline_editor *edit) {
 char *inline_currentsuggestion(inline_editor *edit) {
     if (!inline_havesuggestions(edit)) return NULL;
     return inline_stringlist_current(&edit->suggestions);
+}
+
+/** Advance through the suggestions by delta (can be negative; we wrap around) */
+void inline_advancesuggestions(inline_editor *edit, int delta) {
+    inline_stringlist_advance(&edit->suggestions, delta);
 }
 
 /* **********************************************************************
@@ -958,6 +963,15 @@ void inline_paste(inline_editor *edit) {
         if (edit->selection_posn != INLINE_NO_SELECTION) inline_deleteselection(edit); // Replace selection
         inline_insert(edit, edit->clipboard, edit->clipboard_len);
     }
+}
+
+/** Apply current suggestion */
+void inline_applysuggestion(inline_editor *edit) {
+    const char *s = inline_currentsuggestion(edit);
+    if (!s) return;
+
+    inline_insert(edit, s, strlen(s));
+    inline_clearsuggestions(edit);
 }
 
 /** History */
