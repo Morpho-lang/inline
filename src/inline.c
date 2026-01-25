@@ -30,7 +30,9 @@
 static char *inline_strdup(const char *s); 
 void inline_disablerawmode(inline_editor *edit);
 
-#ifndef _WIN32
+#ifdef _WIN32
+typedef DWORD termstate_t;
+#else 
 typedef struct termios termstate_t;
 #endif
 
@@ -70,8 +72,12 @@ typedef struct inline_editor {
 
     inline_multilinefn multiline_fn;      // Multiline callback
     void *multiline_ref;                  // User reference
-#ifndef _WIN32
-    termstate_t termstate;                // Preserve terminal state 
+
+#ifdef _WIN32                             // Preserve terminal state 
+    termstate_t termstate_in; 
+    termstate_t termstate_out; 
+#else 
+    termstate_t termstate;                
 #endif 
     bool rawmode_enabled;                 // Record if rawmode has already been enabled
 
@@ -268,7 +274,20 @@ static bool registered = false;
 bool inline_enablerawmode(inline_editor *edit) {
     if (edit->rawmode_enabled) return true;
 
-#ifndef _WIN32 // Note modern windows with ConPTY is in raw mode by default. 
+#ifdef _WIN32 
+    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE); 
+    if (!GetConsoleMode(hIn, &edit->termstate_in)) return false;
+    DWORD newIn = edit->termstate_in &
+                  ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT) |
+                  ENABLE_VIRTUAL_TERMINAL_INPUT;
+    if (!SetConsoleMode(hIn, newIn)) return false; // Disable cooked mode
+
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE); 
+    if (!GetConsoleMode(hOut, &edit->termstate_out)) return false;
+    DWORD newOut = edit->termstate_out |
+                   ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+    if (!SetConsoleMode(hOut, newOut)) return false; // Enable VT output
+#else 
     if (tcgetattr(STDIN_FILENO, &edit->termstate) == -1) return false;
 
     struct termios raw = edit->termstate;
@@ -302,7 +321,12 @@ bool inline_enablerawmode(inline_editor *edit) {
 void inline_disablerawmode(inline_editor *edit) {
     if (!edit || !edit->rawmode_enabled) return;
 
-#ifndef _WIN32
+#ifdef _WIN32
+    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    SetConsoleMode(hIn,  edit->termstate_in);
+    SetConsoleMode(hOut, edit->termstate_out);
+#else 
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &edit->termstate);
 #endif
 
@@ -456,6 +480,7 @@ typedef unsigned char rawinput_t;
 /** Await a single raw unit of input and store in a rawinput_t */
 bool inline_readraw(rawinput_t *out) {
     size_t n = read(STDIN_FILENO, out, 1);
+    if (n==1) fprintf(stderr, "RAW: %02x\n", (unsigned char)*out);
     return n == 1;
 }
 
@@ -477,7 +502,7 @@ typedef enum {
 /** A single keypress event obtained and processed by the terminal */
 typedef struct {
     keytype_t type; /** Type of keypress */
-    char c[5]; /** Up to four bytes of utf8 encoded unicode plus null terminator */
+    unsigned char c[5]; /** Up to four bytes of utf8 encoded unicode plus null terminator */
     int nbytes; /** Number of bytes */
 } keypress_t;
 
@@ -556,6 +581,7 @@ static void inline_decode_utf8(unsigned char first, keypress_t *out) {
 enum keycodes {
     BACKSPACE_CODE = 8,   // Backspace (Ctrl+H) 
     TAB_CODE       = 9,   // Tab 
+    LF_CODE        = 10,  // Line feed
     RETURN_CODE    = 13,  // Enter / Return (CR) 
     ESC_CODE       = 27,  // Escape 
     DELETE_CODE    = 127  // Delete (DEL) 
@@ -569,6 +595,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
     if (b < 32 || b == DELETE_CODE) { // Control keys (ASCII control range or DEL)
         switch (b) {
             case TAB_CODE:    out->type = KEY_TAB; return;
+            case LF_CODE: // v fallthrough
             case RETURN_CODE: out->type = KEY_RETURN; return;
             case BACKSPACE_CODE: // v fallthrough
             case DELETE_CODE: out->type = KEY_DELETE; return;
@@ -817,6 +844,33 @@ void inline_unsupported(inline_editor *edit) {
     edit->buffer_len = length + 1;
 }
 
+typedef enum {
+    MODE_PTY,          // ConPTY or other PTY-like environment
+    MODE_CONSOLE,      // Real Windows console (conhost)
+    MODE_PIPE          // Pipe, redirected input, or PowerShell 7 fallback
+} input_mode_t;
+
+input_mode_t detect_input_mode(void) {
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD type = GetFileType(h);
+
+    // If it's not a pipe or char device, treat as pipe
+    if (type != FILE_TYPE_CHAR && type != FILE_TYPE_PIPE) return MODE_PIPE;
+
+    DWORD mode;
+    BOOL ok = GetConsoleMode(h, &mode);
+
+    if (!ok) return MODE_PTY; // GetConsoleMode fails on PTYs e.g. ConPTY, VS Code PTY, SSH PTY, WSL interop
+
+    // If GetConsoleMode succeeded:
+    // - FILE_TYPE_CHAR → real console
+    // - FILE_TYPE_PIPE → pipe mode
+    if (type == FILE_TYPE_CHAR) return MODE_CONSOLE;
+
+    return MODE_PIPE;
+}
+
+
 /** Normal interface if terminal recognized */
 void inline_supported(inline_editor *edit) {
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
@@ -824,15 +878,29 @@ void inline_supported(inline_editor *edit) {
     inline_updateterminalwidth(edit);
     inline_redraw(edit);
 
+    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    printf("stdin type: %lu\n", GetFileType(hIn));
+    printf("stdout type: %lu\n", GetFileType(hOut));
+
+    DWORD mode;
+    printf("stdin console? %d\n", GetConsoleMode(hIn, &mode));
+    printf("stdout console? %d\n", GetConsoleMode(hOut, &mode));
+
     keypress_t key;
     while (inline_readkeypress(edit, &key)) {
+        fprintf(stdout, "KEY: type=%d\n", key.type);
+    }
+
+    /*while (inline_readkeypress(edit, &key)) {
         if (!inline_processkeypress(edit, &key)) break;
 
         if (edit->refresh) { 
             inline_redraw(edit); 
             edit->refresh = false; 
         }
-    }
+    }*/
 
     inline_disablerawmode(edit);
 

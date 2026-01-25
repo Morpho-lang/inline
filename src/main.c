@@ -12,7 +12,7 @@ int main(void) {
     }
 
     printf("Editor created successfully.\n");
-\
+
     char *line = inline_readline(ed);
 
     if (line) {
