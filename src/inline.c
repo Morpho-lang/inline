@@ -849,33 +849,6 @@ void inline_unsupported(inline_editor *edit) {
     edit->buffer_len = length + 1;
 }
 
-typedef enum {
-    MODE_PTY,          // ConPTY or other PTY-like environment
-    MODE_CONSOLE,      // Real Windows console (conhost)
-    MODE_PIPE          // Pipe, redirected input, or PowerShell 7 fallback
-} input_mode_t;
-
-input_mode_t detect_input_mode(void) {
-    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD type = GetFileType(h);
-
-    // If it's not a pipe or char device, treat as pipe
-    if (type != FILE_TYPE_CHAR && type != FILE_TYPE_PIPE) return MODE_PIPE;
-
-    DWORD mode;
-    BOOL ok = GetConsoleMode(h, &mode);
-
-    if (!ok) return MODE_PTY; // GetConsoleMode fails on PTYs e.g. ConPTY, VS Code PTY, SSH PTY, WSL interop
-
-    // If GetConsoleMode succeeded:
-    // - FILE_TYPE_CHAR → real console
-    // - FILE_TYPE_PIPE → pipe mode
-    if (type == FILE_TYPE_CHAR) return MODE_CONSOLE;
-
-    return MODE_PIPE;
-}
-
-
 /** Normal interface if terminal recognized */
 void inline_supported(inline_editor *edit) {
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
