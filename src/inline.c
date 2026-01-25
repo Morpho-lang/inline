@@ -768,6 +768,13 @@ void inline_deleteselection(inline_editor *edit) {
     edit->selection_posn = INLINE_NO_SELECTION; // Clear selection
 }
 
+/** Delete character under cursor */
+void inline_deletecurrent(inline_editor *edit) {
+    if (edit->cursor_posn < edit->grapheme_count) { // Delete grapheme under cursor if at start of line
+        inline_deletegrapheme(edit, edit->cursor_posn);
+    }
+}
+
 /** Delete text from the buffer */
 void inline_delete(inline_editor *edit) {
     if (edit->selection_posn != INLINE_NO_SELECTION) {
@@ -775,9 +782,7 @@ void inline_delete(inline_editor *edit) {
     } else if (edit->cursor_posn > 0) { // Delete grapheme before cursor 
         inline_deletegrapheme(edit, edit->cursor_posn - 1);
         edit->cursor_posn -= 1;
-    } else if (edit->cursor_posn < edit->grapheme_count) { // Delete grapheme under cursor if at start of line
-        inline_deletegrapheme(edit, edit->cursor_posn);
-    }
+    } else inline_deletecurrent(edit);
 }
 
 /** Clear the buffer */
@@ -861,6 +866,10 @@ bool inline_processshortcut(inline_editor *edit, char c) {
         case 'A': inline_home(edit); break;
         case 'B': inline_left(edit); break;
         case 'C': inline_copyselection(edit); break; 
+        case 'D': 
+            inline_clearselection(edit);
+            inline_deletecurrent(edit);
+            break; 
         case 'E': inline_end(edit); break;
         case 'F': inline_right(edit); break;
         case 'G': return false; // exit on Ctrl-G
@@ -910,7 +919,9 @@ bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             inline_clearselection(edit);
             inline_end(edit);
             break;
-        case KEY_DELETE: inline_delete(edit);       break;
+        case KEY_DELETE: 
+            inline_delete(edit); 
+            break;
         case KEY_CTRL:   
             return inline_processshortcut(edit, key->c[0]);
         case KEY_CHARACTER: 
