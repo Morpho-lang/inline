@@ -6,6 +6,8 @@
 #include "inline.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+#include <ctype.h>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -19,6 +21,8 @@
     #include <termios.h>
     #include <unistd.h>
     #include <sys/ioctl.h>
+    #include <signal.h>
+    #include <strings.h> 
 #endif
 
 #define INLINE_DEFAULT_BUFFER_SIZE 128
@@ -388,7 +392,7 @@ static inline int inline_utf8length(unsigned char b) {
 
 /** Compute grapheme locations - Temporary implementation */
 void inline_recomputegraphemes(inline_editor *edit) {
-    int needed = (int)edit->buffer_len; // Assume 1 byte per character as a worst case. 
+    int needed = (int) edit->buffer_len; // Assume 1 byte per character as a worst case. 
 
     size_t required_bytes = needed * sizeof(size_t); // Ensure capacity
     if (required_bytes > edit->grapheme_size) {
@@ -397,9 +401,7 @@ void inline_recomputegraphemes(inline_editor *edit) {
 
         size_t *new = realloc(edit->graphemes, newsize);
         if (!new) {
-            edit->graphemes = NULL;
             edit->grapheme_count = 0;
-            edit->grapheme_size = 0;
             return;
         }
 
@@ -412,7 +414,7 @@ void inline_recomputegraphemes(inline_editor *edit) {
     for (size_t i = 0; i < edit->buffer_len; ) {
         edit->graphemes[count++] = i;
         size_t len = inline_utf8length((unsigned char)edit->buffer[i]);
-        if (!len) break; 
+        if (len <= 0) len = 1; // Recover from malformed utf8 
         i+=len; 
     }
 
@@ -428,6 +430,12 @@ static inline int imax(int a, int b) { return a > b ? a : b; }
 
 /** Finds the start and end of grapheme i in bytes */
 static inline void inline_graphemerange(inline_editor *edit, int i, size_t *start, size_t *end) {
+    if (i < 0 || i >= edit->grapheme_count) { // Handle out of bounds access (incl. i representing end of line)
+        if (start) *start = edit->buffer_len;
+        if (end)   *end   = edit->buffer_len;
+        return; 
+    }
+
     if (start) *start = edit->graphemes[i];
     if (end) *end = ((i + 1 < edit->grapheme_count) ? edit->graphemes[i + 1] : edit->buffer_len);
 }
