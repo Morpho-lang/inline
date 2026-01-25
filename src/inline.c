@@ -227,12 +227,17 @@ void inline_updateterminalwidth(inline_editor *edit) {
  * Handle crashes
  * ---------------------------------------- */
 
-#ifndef _WIN32
 /** Exit handler called on crashes */
 static void inline_emergencyrestore(void) {
     if (inline_lasteditor) inline_disablerawmode(inline_lasteditor);
 }
 
+#ifdef _WIN32
+static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
+    inline_emergencyrestore(); // Restore on any console event
+    return FALSE; // Allow default behavior
+}
+#else 
 static void inline_signalhandler(int sig, siginfo_t *info, void *ucontext) {
     if (sig == SIGWINCH) {
         if (inline_lasteditor) inline_lasteditor->refresh = true;
@@ -246,12 +251,14 @@ static void inline_signalhandler(int sig, siginfo_t *info, void *ucontext) {
 
 /** Register emergency exit and signal handlers */
 static void inline_registeremergencyhandlers(void) {
-#ifndef _WIN32 
-static bool registered = false; 
+    static bool registered = false; 
     if (registered) return; 
     registered=true;
-    atexit(inline_emergencyrestore);
 
+    atexit(inline_emergencyrestore);
+#ifdef _WIN32 
+    SetConsoleCtrlHandler(inline_consolehandler, TRUE);
+#else 
     const int sigs[] = { // List of signals to respond to
         SIGINT, SIGTERM, SIGQUIT, SIGHUP, SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE, SIGWINCH
     };
@@ -480,7 +487,6 @@ typedef unsigned char rawinput_t;
 /** Await a single raw unit of input and store in a rawinput_t */
 bool inline_readraw(rawinput_t *out) {
     size_t n = read(STDIN_FILENO, out, 1);
-    if (n==1) fprintf(stderr, "RAW: %02x\n", (unsigned char)*out);
     return n == 1;
 }
 
@@ -547,7 +553,7 @@ static void inline_decode_escape(keypress_t *out) {
     if (!inline_readraw(&seq[i]) || seq[0] != '[') { return; }
 
     // Read until alpha terminator
-     for (i = 1; i < INLINE_ESCAPECODE_MAXLENGTH - 1; i++) {
+    for (i = 1; i < INLINE_ESCAPECODE_MAXLENGTH - 1; i++) {
         if (!inline_readraw(&seq[i])) break;
         if (isalpha(seq[i])) break;
     }
@@ -878,29 +884,15 @@ void inline_supported(inline_editor *edit) {
     inline_updateterminalwidth(edit);
     inline_redraw(edit);
 
-    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-
-    printf("stdin type: %lu\n", GetFileType(hIn));
-    printf("stdout type: %lu\n", GetFileType(hOut));
-
-    DWORD mode;
-    printf("stdin console? %d\n", GetConsoleMode(hIn, &mode));
-    printf("stdout console? %d\n", GetConsoleMode(hOut, &mode));
-
-    keypress_t key;
+    keypress_t key; 
     while (inline_readkeypress(edit, &key)) {
-        fprintf(stdout, "KEY: type=%d\n", key.type);
-    }
-
-    /*while (inline_readkeypress(edit, &key)) {
         if (!inline_processkeypress(edit, &key)) break;
 
         if (edit->refresh) { 
             inline_redraw(edit); 
             edit->refresh = false; 
         }
-    }*/
+    }
 
     inline_disablerawmode(edit);
 
