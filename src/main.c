@@ -17,6 +17,7 @@ int main(void) {
 
     if (line) {
         printf("You entered: '%s'\n", line);
+        free(line);
     } else {
         printf("inline_readline returned NULL.\n");
     }

@@ -908,5 +908,5 @@ char *inline_readline(inline_editor *edit) {
         inline_unsupported(edit);
     }
 
-    return edit->buffer;
+    return (edit->buffer ? inline_strdup(edit->buffer) : NULL);
 }
