@@ -291,9 +291,8 @@ bool inline_enablerawmode(inline_editor *edit) {
 
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE); 
     if (!GetConsoleMode(hOut, &edit->termstate_out)) return false;
-    //DWORD newOut = (edit->termstate_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING |
-    //                DISABLE_NEWLINE_AUTO_RETURN) & ~(ENABLE_PROCESSED_OUTPUT);
-    //if (!SetConsoleMode(hOut, newOut)) return false; // Enable VT output
+    DWORD newOut = edit->termstate_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    if (!SetConsoleMode(hOut, newOut)) return false; // Enable VT output
 #else 
     if (tcgetattr(STDIN_FILENO, &edit->termstate) == -1) return false;
 
