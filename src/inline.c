@@ -46,10 +46,20 @@ typedef DWORD termstate_t;
 typedef struct termios termstate_t;
 #endif
 
+
+
 /* **********************************************************************
- * Line editor data structure and configuration
+ * Line editor data structures and configuration
  * ********************************************************************** */
 
+/** Simple list of strings type */
+typedef struct inline_stringlist {
+    char **items;   // List of strings
+    int count;      // Number of strings
+    int index;      // Current index
+} inline_stringlist_t;
+
+/** The editor data structure */
 typedef struct inline_editor {
     char *prompt; 
     char *continuation_prompt; 
@@ -84,8 +94,12 @@ typedef struct inline_editor {
     inline_completefn complete_fn;        // Autocomplete callback
     void *complete_ref;                   // User reference 
 
+    inline_stringlist_t suggestions;      // List of suggestions from autocompleter
+
     inline_multilinefn multiline_fn;      // Multiline callback
     void *multiline_ref;                  // User reference
+
+    inline_stringlist_t history;          // List of history entries 
 
 #ifdef _WIN32                             // Preserve terminal state 
     termstate_t termstate_in; 
@@ -94,9 +108,6 @@ typedef struct inline_editor {
     termstate_t termstate;                
 #endif 
     bool rawmode_enabled;                 // Record if rawmode has already been enabled
-
-    int cursor_col;                       // current cursor column on screen
-    int render_cols;                      // width of last render
 
     bool refresh;                         // Set to refresh on next redraw
 } inline_editor; 
@@ -131,6 +142,8 @@ inline_new_cleanup:
     return NULL; 
 }
 
+void inline_clearsuggestions(inline_editor *edit);
+
 /** Free a line editor and associated resources */
 void inline_free(inline_editor *editor) {
     if (!editor) return;
@@ -141,6 +154,8 @@ void inline_free(inline_editor *editor) {
     free(editor->buffer);
     free(editor->graphemes);
     free(editor->clipboard);
+
+    inline_clearsuggestions(&editor->suggestions);
 
     free(editor->spans);
     free(editor->palette);
@@ -449,6 +464,53 @@ static inline void inline_graphemerange(inline_editor *edit, int i, size_t *star
 }
 
 /* ----------------------------------------
+ * String lists
+ * ---------------------------------------- */
+
+/** Add an entry to a stringlist */
+static bool inline_stringlist_add(inline_stringlist_t *list, const char *s) {
+    if (!s) return false; // Never add a null pointer
+    char *copy = inline_strdup(s);
+    if (!copy) return false;  
+    char **newitems = realloc(list->items, sizeof(char*) * (list->count + 1));
+    if (!newitems) { free(copy); return false; } // Don't update if realloc fails
+
+    list->items = newitems;
+    list->items[list->count] = copy; 
+    list->count++;
+    return true; 
+}
+
+/** Clear a stringlist */
+static void inline_stringlist_clear(inline_stringlist_t *list) {
+    if (list->items) {
+        for (int i = 0; i < list->count; i++) free(list->items[i]);
+        free(list->items);
+    }
+
+    list->items = NULL;
+    list->count = 0;
+    list->index = 0;
+}
+
+/** Get the current string in a stringlist */
+static const int inline_stringlist_count(inline_stringlist_t *list) {
+    return list->count;
+}
+
+/** Get the current string in a stringlist */
+static const char *inline_stringlist_current(inline_stringlist_t *list) {
+    if (list->count == 0) return NULL;
+    return list->items[list->index];
+}
+
+/** Advance the current index by delta, wrapping around */
+static void inline_stringlist_advance(inline_stringlist_t *list, int delta) {
+    if (list->count == 0) return;
+    list->index = (list->index + delta + list->count) % list->count;
+}
+
+/* ----------------------------------------
  * Selections
  * ---------------------------------------- */
 
@@ -495,6 +557,51 @@ bool inline_copytoclipboard(inline_editor *edit, const char *string, size_t leng
     edit->clipboard[length] = '\0'; // Ensure null termination
     edit->clipboard_len = length;
     return true; 
+}
+
+/* ----------------------------------------
+ * Autocomplete / Suggestions
+ * ---------------------------------------- */
+
+/** Check if the cursor is at the end of the buffer */
+bool inline_atend(inline_editor *edit) {
+    return edit->cursor_posn == edit->grapheme_count;
+}
+
+/** Adds a suggestion to the suggestion list */
+void inline_addsuggestion(inline_editor *edit, char *s) {
+    inline_stringlist_add(&edit->suggestions, s);
+}
+
+/** Clears the suggestion list */
+void inline_clearsuggestions(inline_editor *edit) {
+    inline_stringlist_clear(&edit->suggestions);
+}
+
+/** Generates suggestions by repeatedly calling the completion callback */
+void inline_generatesuggestions(inline_editor *edit) {
+    if (!edit->complete_fn) return;
+
+    inline_clearsuggestions(&edit->suggestions);
+
+    if (edit->buffer && inline_atend(edit)) {
+        for (int i = 0; ; i++) { // Iterate over suggestions
+            char *s = edit->complete_fn(edit->buffer, edit->complete_ref, i);
+            if (!s) break;
+            inline_addsuggestion(edit, s); 
+        }
+    }
+}
+
+/** Check if suggestions are available */
+bool inline_havesuggestions(inline_editor *edit) {
+    return inline_stringlist_count(&edit->suggestions) > 0;
+}
+
+/** Returns the current suggestion */
+char *inline_currentsuggestion(inline_editor *edit) {
+    if (!inline_havesuggestions(edit)) return NULL;
+    return inline_stringlist_current(&edit->suggestions);
 }
 
 /* **********************************************************************
