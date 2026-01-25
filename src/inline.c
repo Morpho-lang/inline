@@ -284,15 +284,15 @@ bool inline_enablerawmode(inline_editor *edit) {
 #ifdef _WIN32 
     HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE); 
     if (!GetConsoleMode(hIn, &edit->termstate_in)) return false;
-    DWORD newIn = edit->termstate_in &
-                  ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT) |
-                  ENABLE_VIRTUAL_TERMINAL_INPUT;
+    DWORD mask = ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT;
+    DWORD newIn = ((edit->termstate_in & mask) &
+                  ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT )) | ENABLE_VIRTUAL_TERMINAL_INPUT;
     if (!SetConsoleMode(hIn, newIn)) return false; // Disable cooked mode
 
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE); 
     if (!GetConsoleMode(hOut, &edit->termstate_out)) return false;
-    DWORD newOut = edit->termstate_out |
-                   ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+    DWORD newOut = (edit->termstate_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING |
+                    DISABLE_NEWLINE_AUTO_RETURN) & ~(ENABLE_PROCESSED_OUTPUT);
     if (!SetConsoleMode(hOut, newOut)) return false; // Enable VT output
 #else 
     if (tcgetattr(STDIN_FILENO, &edit->termstate) == -1) return false;
@@ -601,7 +601,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
     if (b < 32 || b == DELETE_CODE) { // Control keys (ASCII control range or DEL)
         switch (b) {
             case TAB_CODE:    out->type = KEY_TAB; return;
-            case LF_CODE: // v fallthrough
+            case LF_CODE:     return; 
             case RETURN_CODE: out->type = KEY_RETURN; return;
             case BACKSPACE_CODE: // v fallthrough
             case DELETE_CODE: out->type = KEY_DELETE; return;
