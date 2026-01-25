@@ -365,8 +365,9 @@ bool inline_extendbufferby(inline_editor *edit, size_t extra) {
     size_t newcap = edit->buffer_size ? edit->buffer_size : INLINE_DEFAULT_BUFFER_SIZE;
     while (newcap < required) newcap *= 2; // Grow exponentially
 
-    edit->buffer = realloc(edit->buffer, newcap);
-    if (!edit->buffer) return false;  
+    void *p = realloc(edit->buffer, newcap);
+    if (!p) return false;  
+    edit->buffer = p;
     edit->buffer_size = newcap;
 
     return true;
@@ -410,10 +411,12 @@ void inline_recomputegraphemes(inline_editor *edit) {
     int count = 0;
     for (size_t i = 0; i < edit->buffer_len; ) {
         edit->graphemes[count++] = i;
-        i += inline_utf8length((unsigned char)edit->buffer[i]);
+        size_t len = inline_utf8length((unsigned char)edit->buffer[i]);
+        if (!len) break; 
+        i+=len; 
     }
 
-    edit->grapheme_count = needed;
+    edit->grapheme_count = count;
 }
 
 /* **********************************************************************
@@ -554,7 +557,7 @@ static void inline_decode_escape(keypress_t *out) {
     // Read until alpha terminator
     for (i = 1; i < INLINE_ESCAPECODE_MAXLENGTH - 1; i++) {
         if (!inline_readraw(&seq[i])) break;
-        if (isalpha(seq[i])) break;
+        if (isalpha(seq[i]) || seq[i] == '~') break;
     }
     seq[i + 1] = '\0'; // Ensure null terminated
 
