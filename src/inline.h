@@ -29,7 +29,9 @@ typedef struct inline_editor inline_editor;
  *  @param[in] index    Zero-based index of the suggestion to return.
  *
  *  @returns A UTF-8 string containing the completion suggestion,
- *           or NULL if no more suggestions exist.
+ *           or NULL if no more suggestions exist. The suggestion 
+ *           should only include the suffix, e.g for "pr" a suggestion
+ *           could be "int" to make "print"
  *
  *  @note The returned string is owned by the callback; inline copies the
  *        string immediately. */

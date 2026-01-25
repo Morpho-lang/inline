@@ -17,8 +17,7 @@ char *completefn(const char *prefix, void *ref, int index) {
     size_t len = strlen(prefix);
     for (int i = 0; words[i]; i++) {
         if (strncmp(prefix, words[i], len) == 0) {
-            if (index-- == 0)
-                return (char*)words[i];
+            if (index-- == 0) return (char*)words[i] + len; // Return only suffix
         }
     }
     return NULL;

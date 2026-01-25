@@ -581,8 +581,8 @@ void inline_clearsuggestions(inline_editor *edit) {
 /** Generates suggestions by repeatedly calling the completion callback */
 void inline_generatesuggestions(inline_editor *edit) {
     if (!edit->complete_fn) return;
-
     inline_clearsuggestions(edit);
+    if (edit->selection_posn!=INLINE_NO_SELECTION) return; // Enforce that suggestions cannot be generated while a selection is active
 
     if (edit->buffer && inline_atend(edit)) {
         for (int i = 0; ; i++) { // Iterate over suggestions
@@ -640,6 +640,14 @@ void inline_redraw(inline_editor *edit) {
     // If selection extends to end, ensure attributes reset
     if (sel_l != INLINE_NO_SELECTION && sel_r == edit->grapheme_count)
         write(STDOUT_FILENO, "\x1b[0m", 4);
+
+    // Ghosted suggestion suffix 
+    const char *suffix = inline_currentsuggestion(edit);
+    if (suffix && *suffix) { // Ensure suggestion is present and has nonzero length
+        write(STDOUT_FILENO, "\x1b[2m", 4);              // faint
+        write(STDOUT_FILENO, suffix, strlen(suffix));    // ghost text
+        write(STDOUT_FILENO, "\x1b[0m", 4);              // reset
+    }
 
     // Clear to end of line (in case previous render was longer)
     write(STDOUT_FILENO, "\x1b[K", 3);
@@ -1046,12 +1054,14 @@ bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
         case KEY_CTRL:   
             return inline_processshortcut(edit, key->c[0]);
         case KEY_CHARACTER: 
-            if (!inline_insert(edit, (char *) key->c,  key->nbytes)) return false; 
+            inline_clearselection(edit);
+            if (!inline_insert(edit, (char *) key->c, key->nbytes)) return false;
             break;
         default:
             break;
     }
 
+    inline_generatesuggestions(edit);
     edit->refresh = true;
     return true;
 }
