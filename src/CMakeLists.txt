@@ -1,4 +1,9 @@
 
+if (MSVC)
+    add_compile_options(/wd5045) # QSpectre warnings
+    add_compile_options(/wd4668) # Macro warnings from windows libraries
+endif()
+
 # Library source files
 add_library(inline STATIC
     inline.c

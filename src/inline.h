@@ -85,9 +85,8 @@ void inline_free(inline_editor *edit);
 
 /** @brief Read a line of input from the terminal.
  *  @param[in] edit   Line editor to use.
- *  @returns A malloc'd UTF-8 string containing the user's input,
- *           or NULL on EOF. Caller is responsible for freeing the returned string.
- */
+ *  @returns A UTF-8 string containing the user's input, or NULL on EOF. 
+ *           Caller must not modify or free the returned string. */
 char *inline_readline(inline_editor *edit);
 
 /** @brief Enable syntax coloring.

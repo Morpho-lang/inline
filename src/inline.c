@@ -9,11 +9,16 @@
 #include <string.h>
 #include <ctype.h>
 
+/** TODO: 
+ * 1. Consider readline() contract - should we strdup on exit and caller frees? 
+ */
+
 #ifdef _WIN32
     #include <windows.h>
     #include <io.h>
     #include <conio.h>
     #define read _read
+    #define write _write
     #define isatty _isatty
     #define STDIN_FILENO _fileno(stdin)
     #define STDOUT_FILENO _fileno(stdout)
@@ -21,6 +26,7 @@
     #include <termios.h>
     #include <unistd.h>
     #include <sys/ioctl.h>
+    #include <sys/types.h>
     #include <signal.h>
     #include <strings.h> 
 #endif
@@ -444,8 +450,8 @@ static inline void inline_graphemerange(inline_editor *edit, int i, size_t *star
 void inline_redraw(inline_editor *edit) {
     write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
 
-    int prompt_len = strlen(edit->prompt); // Write prompt
-    write(STDOUT_FILENO, edit->prompt, prompt_len);
+    size_t prompt_len = strlen(edit->prompt); // Write prompt
+    write(STDOUT_FILENO, edit->prompt, (unsigned int) prompt_len);
 
     // Compute selection bounds, if a selection is active
     int sel_l = INLINE_NO_SELECTION, sel_r = INLINE_NO_SELECTION;
@@ -461,7 +467,7 @@ void inline_redraw(inline_editor *edit) {
         // Write grapheme
         size_t start, end;
         inline_graphemerange(edit, i, &start, &end);
-        write(STDOUT_FILENO, edit->buffer + start, end - start);
+        write(STDOUT_FILENO, edit->buffer + start, (unsigned int) end - start);
     }
 
     // If selection extends to end, ensure attributes reset
@@ -496,7 +502,7 @@ typedef unsigned char rawinput_t;
 
 /** Await a single raw unit of input and store in a rawinput_t */
 bool inline_readraw(rawinput_t *out) {
-    size_t n = read(STDIN_FILENO, out, 1);
+    int n = (int) read(STDIN_FILENO, out, 1);
     return n == 1;
 }
 
@@ -571,7 +577,7 @@ static void inline_decode_escape(keypress_t *out) {
 
     // Lookup escape code 
     for (size_t j = 0; j < sizeof(esc_table)/sizeof(esc_table[0]); j++) {
-        if (strcmp(seq, esc_table[j].seq) == 0) {
+        if (strcmp((const char *)seq, esc_table[j].seq) == 0) {
             out->type = esc_table[j].type;
             return;
         }
@@ -819,7 +825,7 @@ bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
         case KEY_CTRL:   
             return inline_processshortcut(edit, key->c[0]);
         case KEY_CHARACTER: 
-            if (!inline_insert(edit, key->c, key->nbytes)) return false; 
+            if (!inline_insert(edit, (char *) key->c,  key->nbytes)) return false; 
             break;
         default:
             break;
