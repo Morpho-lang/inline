@@ -8,17 +8,17 @@
 #include <stdio.h>
 
 #ifdef _WIN32
-#include <windows.h>
-#include <io.h>
-#include <conio.h>
-#define read _read
-#define isatty _isatty
-#define STDIN_FILENO _fileno(stdin)
-#define STDOUT_FILENO _fileno(stdout)
+    #include <windows.h>
+    #include <io.h>
+    #include <conio.h>
+    #define read _read
+    #define isatty _isatty
+    #define STDIN_FILENO _fileno(stdin)
+    #define STDOUT_FILENO _fileno(stdout)
 #else
-#include <termios.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
+    #include <termios.h>
+    #include <unistd.h>
+    #include <sys/ioctl.h>
 #endif
 
 #define INLINE_DEFAULT_BUFFER_SIZE 128
