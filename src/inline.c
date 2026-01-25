@@ -855,6 +855,7 @@ void inline_historyprev(inline_editor *edit) {
 void inline_historynext(inline_editor *edit) {
 }
 
+/** Handle Ctrl+_ shortcuts */
 bool inline_processshortcut(inline_editor *edit, char c) {
     switch (c) {
         case 'A': inline_home(edit); break;
@@ -873,6 +874,7 @@ bool inline_processshortcut(inline_editor *edit, char c) {
     return true;
 }
 
+/** Process a keypress */
 bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     switch (key->type) {
         case KEY_RETURN: return false; 
@@ -892,10 +894,22 @@ bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             inline_beginselection(edit);
             inline_right(edit);
             break; 
-        case KEY_UP:     inline_historyprev(edit);  break;
-        case KEY_DOWN:   inline_historynext(edit);  break;
-        case KEY_HOME:   inline_home(edit);         break;
-        case KEY_END:    inline_end(edit);          break;
+        case KEY_UP:
+            inline_clearselection(edit);     
+            inline_historyprev(edit);
+            break;
+        case KEY_DOWN:
+            inline_clearselection(edit);
+            inline_historynext(edit);
+            break;
+        case KEY_HOME:
+            inline_clearselection(edit);   
+            inline_home(edit);
+            break;
+        case KEY_END:    
+            inline_clearselection(edit);
+            inline_end(edit);
+            break;
         case KEY_DELETE: inline_delete(edit);       break;
         case KEY_CTRL:   
             return inline_processshortcut(edit, key->c[0]);
