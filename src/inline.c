@@ -9,10 +9,6 @@
 #include <string.h>
 #include <ctype.h>
 
-/** TODO: 
- * 1. Consider readline() contract - should we strdup on exit and caller frees? 
- */
-
 #ifdef _WIN32
     #include <windows.h>
     #include <io.h>
@@ -34,19 +30,13 @@
 #define INLINE_DEFAULT_BUFFER_SIZE 128
 #define INLINE_DEFAULT_PROMPT ">"
 
-#define INLINE_NO_SELECTION -1 
-
-// Forward declarations
-static char *inline_strdup(const char *s); 
-void inline_disablerawmode(inline_editor *edit);
+#define INLINE_INVALID -1 
 
 #ifdef _WIN32
 typedef DWORD termstate_t;
 #else 
 typedef struct termios termstate_t;
 #endif
-
-
 
 /* **********************************************************************
  * Line editor data structures and configuration
@@ -114,6 +104,14 @@ typedef struct inline_editor {
 
 static inline_editor *inline_lasteditor = NULL;
 
+// Forward declarations
+static char *inline_strdup(const char *s); 
+static void inline_disablerawmode(inline_editor *edit);
+static void inline_stringlist_init(inline_stringlist_t *list);
+static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes);
+static void inline_clear(inline_editor *edit);
+static void inline_clearselection(inline_editor *edit);
+
 /* -----------------------
  * New/free API
  * ----------------------- */
@@ -133,7 +131,10 @@ inline_editor *inline_new(const char *prompt) {
     editor->buffer[0] = '\0'; // Ensure zero terminated
     editor->buffer_len = 0;
 
-    editor->selection_posn = INLINE_NO_SELECTION; // No selection
+    editor->selection_posn = INLINE_INVALID; // No selection
+
+    inline_stringlist_init(&editor->suggestions);
+    inline_stringlist_init(&editor->history);
 
     return editor;
 
@@ -217,7 +218,7 @@ bool inline_checktty(void) {
 }
 
 /** Check whether the terminal type is supported. */
-bool inline_checksupported(void) {
+static bool inline_checksupported(void) {
 #ifndef _WIN32
     const char *term = getenv("TERM");
     if (!term || !*term) return false;
@@ -232,7 +233,7 @@ bool inline_checksupported(void) {
 }
 
 /** Update the terminal width */
-void inline_updateterminalwidth(inline_editor *edit) {
+static void inline_updateterminalwidth(inline_editor *edit) {
     int width = 80; // fallback 
 
 #ifdef _WIN32
@@ -308,7 +309,7 @@ static void inline_registeremergencyhandlers(void) {
  * ---------------------------------------- */
 
 /** Enter raw mode */
-bool inline_enablerawmode(inline_editor *edit) {
+static bool inline_enablerawmode(inline_editor *edit) {
     if (edit->rawmode_enabled) return true;
 
 #ifdef _WIN32 
@@ -354,7 +355,7 @@ bool inline_enablerawmode(inline_editor *edit) {
 }
 
 /** Restore terminal state to normal */
-void inline_disablerawmode(inline_editor *edit) {
+static void inline_disablerawmode(inline_editor *edit) {
     if (!edit || !edit->rawmode_enabled) return;
 
 #ifdef _WIN32
@@ -391,7 +392,7 @@ static char *inline_strdup(const char *s) {
 }
 
 /** Ensure the buffer can grow by at least `extra` bytes. */
-bool inline_extendbufferby(inline_editor *edit, size_t extra) {
+static bool inline_extendbufferby(inline_editor *edit, size_t extra) {
     size_t required = edit->buffer_len + extra + 1;  // +1 for null terminator
 
     if (required <= edit->buffer_size) return true;  // Sufficient space already
@@ -421,7 +422,7 @@ static inline int inline_utf8length(unsigned char b) {
 }
 
 /** Compute grapheme locations - Temporary implementation */
-void inline_recomputegraphemes(inline_editor *edit) {
+static void inline_recomputegraphemes(inline_editor *edit) {
     int needed = (int) edit->buffer_len; // Assume 1 byte per character as a worst case. 
 
     size_t required_bytes = needed * sizeof(size_t); // Ensure capacity
@@ -467,6 +468,13 @@ static inline void inline_graphemerange(inline_editor *edit, int i, size_t *star
  * String lists
  * ---------------------------------------- */
 
+/** Initialize a stringlist structure */
+static void inline_stringlist_init(inline_stringlist_t *list) {
+    list->items=NULL;
+    list->count=0;
+    list->index=INLINE_INVALID;
+}
+
 /** Add an entry to a stringlist */
 static bool inline_stringlist_add(inline_stringlist_t *list, const char *s) {
     if (!s) return false; // Never add a null pointer
@@ -488,9 +496,7 @@ static void inline_stringlist_clear(inline_stringlist_t *list) {
         free(list->items);
     }
 
-    list->items = NULL;
-    list->count = 0;
-    list->index = 0;
+    inline_stringlist_init(list);
 }
 
 /** Get the current string in a stringlist */
@@ -500,14 +506,21 @@ static const int inline_stringlist_count(inline_stringlist_t *list) {
 
 /** Get the current string in a stringlist */
 static const char *inline_stringlist_current(inline_stringlist_t *list) {
-    if (list->count == 0) return NULL;
+    if (list->count == 0 || list->index<0 || list->index >= list->count) return NULL;
     return list->items[list->index];
 }
 
-/** Advance the current index by delta, wrapping around */
-static void inline_stringlist_advance(inline_stringlist_t *list, int delta) {
-    if (list->count == 0) return;
-    list->index = (list->index + delta + list->count) % list->count;
+/** Advance the current index by delta with optional wrapping */
+static void inline_stringlist_advance(inline_stringlist_t *list, int delta, bool wrap) {
+    if (list->count == 0 || list->index<0) return;
+    if (list->index >= list->count) list->index = list->count - 1; // Clamp
+    if (wrap) {
+        list->index = (list->index + delta + list->count) % list->count;
+    } else {
+        list->index = list->index + delta;
+        if (list->index<0) list->index=0;
+        if (list->index>=list->count) list->index=list->count-1;
+    }
 }
 
 /* ----------------------------------------
@@ -515,8 +528,8 @@ static void inline_stringlist_advance(inline_stringlist_t *list, int delta) {
  * ---------------------------------------- */
 
 /** Find the start and end points of a selection, if one is present.  */
-bool inline_selectionrange(inline_editor *edit, int *sel_l, int *sel_r, size_t *start, size_t *end) {
-    if (edit->selection_posn == INLINE_NO_SELECTION) return false;
+static bool inline_selectionrange(inline_editor *edit, int *sel_l, int *sel_r, size_t *start, size_t *end) {
+    if (edit->selection_posn == INLINE_INVALID) return false;
 
     int l = imin(edit->selection_posn, edit->cursor_posn);
     int r = imax(edit->selection_posn, edit->cursor_posn);
@@ -534,7 +547,7 @@ bool inline_selectionrange(inline_editor *edit, int *sel_l, int *sel_r, size_t *
  * ---------------------------------------- */
 
 /** Copies a string of given length onto the clipboard. */
-bool inline_copytoclipboard(inline_editor *edit, const char *string, size_t length) {
+static bool inline_copytoclipboard(inline_editor *edit, const char *string, size_t length) {
     if (!string || length==0) { // Empty clipboard
         if (edit->clipboard) edit->clipboard[0] = '\0';  
         edit->clipboard_len = 0;
@@ -564,50 +577,103 @@ bool inline_copytoclipboard(inline_editor *edit, const char *string, size_t leng
  * ---------------------------------------- */
 
 /** Check if the cursor is at the end of the buffer */
-bool inline_atend(inline_editor *edit) {
+static bool inline_atend(inline_editor *edit) {
     return edit->cursor_posn == edit->grapheme_count;
 }
 
 /** Adds a suggestion to the suggestion list */
-void inline_addsuggestion(inline_editor *edit, char *s) {
+static void inline_addsuggestion(inline_editor *edit, char *s) {
     inline_stringlist_add(&edit->suggestions, s);
 }
 
 /** Clears the suggestion list */
-void inline_clearsuggestions(inline_editor *edit) {
+static void inline_clearsuggestions(inline_editor *edit) {
     inline_stringlist_clear(&edit->suggestions);
 }
 
 /** Generates suggestions by repeatedly calling the completion callback */
-void inline_generatesuggestions(inline_editor *edit) {
+static void inline_generatesuggestions(inline_editor *edit) {
     if (!edit->complete_fn) return;
     inline_clearsuggestions(edit);
-    if (edit->selection_posn!=INLINE_NO_SELECTION) return; // Enforce that suggestions cannot be generated while a selection is active
+    if (edit->selection_posn!=INLINE_INVALID) return; // Enforce that suggestions cannot be generated while a selection is active
 
     if (edit->buffer && inline_atend(edit)) {
         size_t index = 0;
-        for (;;) { // Iterate over suggestions
-            char *s = edit->complete_fn(edit->buffer, edit->complete_ref, &index);
-            if (!s) break;
+        char *s;
+        while ((s=edit->complete_fn(edit->buffer, edit->complete_ref, &index))!=0) {
             inline_addsuggestion(edit, s);
         }
+        if (edit->suggestions.count > 0) edit->suggestions.index = 0;
     }
 }
 
 /** Check if suggestions are available */
-bool inline_havesuggestions(inline_editor *edit) {
+static bool inline_havesuggestions(inline_editor *edit) {
     return inline_stringlist_count(&edit->suggestions) > 0;
 }
 
 /** Returns the current suggestion */
-char *inline_currentsuggestion(inline_editor *edit) {
+static char *inline_currentsuggestion(inline_editor *edit) {
     if (!inline_havesuggestions(edit)) return NULL;
     return inline_stringlist_current(&edit->suggestions);
 }
 
 /** Advance through the suggestions by delta (can be negative; we wrap around) */
-void inline_advancesuggestions(inline_editor *edit, int delta) {
-    inline_stringlist_advance(&edit->suggestions, delta);
+static void inline_advancesuggestions(inline_editor *edit, int delta) {
+    inline_stringlist_advance(&edit->suggestions, delta, true);
+}
+
+/* ----------------------------------------
+ * History
+ * ---------------------------------------- */
+
+/** Adds an entry to the history list */
+static void inline_addhistory(inline_editor *edit, const char *buffer) {
+    if (!buffer || !*buffer) return; // Skip empty buffers
+
+    if (edit->history.count > 0) { // Avoid duplicate consecutive entries
+        const char *last = edit->history.items[edit->history.count - 1];
+        if (strcmp(last, buffer) == 0) return;
+    }
+
+    inline_stringlist_add(&edit->history, buffer);
+}
+
+/** Advances the current history */
+static void inline_advancehistory(inline_editor *edit, int delta) {
+    int count = inline_stringlist_count(&edit->history); 
+    if (count == 0) return;
+
+    // Enter history mode if we're not in it
+    if (edit->history.index == INLINE_INVALID) edit->history.index = count - 1;
+    else inline_stringlist_advance(&edit->history, delta, false); // No wrap
+
+    // Load entry or exit history mode
+    const char *s = inline_stringlist_current(&edit->history);
+    inline_clear(edit);
+    if (s) {
+        inline_insert(edit, s, strlen(s));
+    } else edit->history.index = INLINE_INVALID; // Exit history mode
+}
+
+/** End browsing */
+static void inline_endbrowsing(inline_editor *edit) {
+    edit->history.index = INLINE_INVALID;
+}
+
+/* ----------------------------------------
+ * Reset
+ * ---------------------------------------- */
+
+/** Resets the editor before a new session */
+static void inline_reset(inline_editor *edit) {
+    inline_clear(edit);
+    inline_clearselection(edit);
+    inline_endbrowsing(edit);
+    inline_stringlist_clear(&edit->suggestions);
+
+    edit->span_count = 0;
+    edit->rawmode_enabled = false;
 }
 
 /* **********************************************************************
@@ -615,15 +681,15 @@ void inline_advancesuggestions(inline_editor *edit, int delta) {
  * ********************************************************************** */
 
 /** Redraw the line */
-void inline_redraw(inline_editor *edit) {
+static void inline_redraw(inline_editor *edit) {
     write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
 
     size_t prompt_len = strlen(edit->prompt); // Write prompt
     write(STDOUT_FILENO, edit->prompt, (unsigned int) prompt_len);
 
     // Compute selection bounds, if a selection is active
-    int sel_l = INLINE_NO_SELECTION, sel_r = INLINE_NO_SELECTION;
-    if (edit->selection_posn != INLINE_NO_SELECTION) {
+    int sel_l = INLINE_INVALID, sel_r = INLINE_INVALID;
+    if (edit->selection_posn != INLINE_INVALID) {
         sel_l = imin(edit->selection_posn, edit->cursor_posn);
         sel_r = imax(edit->selection_posn, edit->cursor_posn);
     }
@@ -639,7 +705,7 @@ void inline_redraw(inline_editor *edit) {
     }
 
     // If selection extends to end, ensure attributes reset
-    if (sel_l != INLINE_NO_SELECTION && sel_r == edit->grapheme_count)
+    if (sel_l != INLINE_INVALID && sel_r == edit->grapheme_count)
         write(STDOUT_FILENO, "\x1b[0m", 4);
 
     // Ghosted suggestion suffix 
@@ -677,7 +743,7 @@ void inline_redraw(inline_editor *edit) {
 typedef unsigned char rawinput_t;
 
 /** Await a single raw unit of input and store in a rawinput_t */
-bool inline_readraw(rawinput_t *out) {
+static bool inline_readraw(rawinput_t *out) {
     int n = (int) read(STDIN_FILENO, out, 1);
     return n == 1;
 }
@@ -704,13 +770,13 @@ typedef struct {
     int nbytes; /** Number of bytes */
 } keypress_t;
 
-void inline_keypressunknown(keypress_t *keypress) {
+static void inline_keypressunknown(keypress_t *keypress) {
     keypress->type=KEY_UNKNOWN; 
     keypress->c[0]='\0'; 
     keypress->nbytes=0; 
 }
 
-void inline_keypresswithchar(keypress_t *keypress, keytype_t type, char c) {
+static void inline_keypresswithchar(keypress_t *keypress, keytype_t type, char c) {
     keypress->type=type; 
     keypress->c[0]=c; keypress->c[1]='\0';
     keypress->nbytes=1; 
@@ -817,7 +883,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
 }
 
 /** Obtain a keypress event */
-bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
+static bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
     rawinput_t raw;
     if (!inline_readraw(&raw)) return false;
     inline_decode(&raw, out);
@@ -829,7 +895,7 @@ bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
  * ********************************************************************** */
 
 /** Insert text into the buffer */
-bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
+static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
     if (!inline_extendbufferby(edit, nbytes)) return false; // Ensure capacity 
 
     size_t offset = 0; // Obtain the byte offset of the current cursor position
@@ -879,7 +945,7 @@ static void inline_deletegrapheme(inline_editor *edit, int index) {
 }
 
 /** Deletes selected text */
-void inline_deleteselection(inline_editor *edit) {
+static void inline_deleteselection(inline_editor *edit) {
     int sel_l; 
     size_t start, end;
     if (!inline_selectionrange(edit, &sel_l, NULL, &start, &end)) return;
@@ -887,19 +953,19 @@ void inline_deleteselection(inline_editor *edit) {
     inline_deletebytes(edit, start, end); // Delete the selection
 
     edit->cursor_posn = sel_l; // Cursor moves to start of deleted region
-    edit->selection_posn = INLINE_NO_SELECTION; // Clear selection
+    edit->selection_posn = INLINE_INVALID; // Clear selection
 }
 
 /** Delete character under cursor */
-void inline_deletecurrent(inline_editor *edit) {
+static void inline_deletecurrent(inline_editor *edit) {
     if (edit->cursor_posn < edit->grapheme_count) { // Delete grapheme under cursor if at start of line
         inline_deletegrapheme(edit, edit->cursor_posn);
     }
 }
 
 /** Delete text from the buffer */
-void inline_delete(inline_editor *edit) {
-    if (edit->selection_posn != INLINE_NO_SELECTION) {
+static void inline_delete(inline_editor *edit) {
+    if (edit->selection_posn != INLINE_INVALID) {
         inline_deleteselection(edit);
     } else if (edit->cursor_posn > 0) { // Delete grapheme before cursor 
         inline_deletegrapheme(edit, edit->cursor_posn - 1);
@@ -908,7 +974,7 @@ void inline_delete(inline_editor *edit) {
 }
 
 /** Clear the buffer */
-void inline_clear(inline_editor *edit) {
+static void inline_clear(inline_editor *edit) {
     edit->buffer_len = 0; // Clear text buffer 
     edit->buffer[0] = '\0';
     edit->grapheme_count = 0; // Reset graphemes
@@ -917,28 +983,28 @@ void inline_clear(inline_editor *edit) {
 }
 
 /** Navigation keys */
-void inline_home(inline_editor *edit) {
+static void inline_home(inline_editor *edit) {
     if (edit->cursor_posn != 0) {
         edit->cursor_posn = 0;
         edit->refresh = true;
     }
 }
 
-void inline_end(inline_editor *edit) {
+static void inline_end(inline_editor *edit) {
     if (edit->cursor_posn != edit->grapheme_count) {
         edit->cursor_posn = edit->grapheme_count;
         edit->refresh = true;
     }
 }
 
-void inline_left(inline_editor *edit) {
+static void inline_left(inline_editor *edit) {
     if (edit->cursor_posn > 0) {
         edit->cursor_posn -= 1;
         edit->refresh = true;
     }
 }
 
-void inline_right(inline_editor *edit) {
+static void inline_right(inline_editor *edit) {
     if (edit->cursor_posn < edit->grapheme_count) {
         edit->cursor_posn += 1;
         edit->refresh = true;
@@ -946,37 +1012,37 @@ void inline_right(inline_editor *edit) {
 }
 
 /** Selection */
-void inline_beginselection(inline_editor *edit) {
-    if (edit->selection_posn==INLINE_NO_SELECTION) edit->selection_posn = edit->cursor_posn;
+static void inline_beginselection(inline_editor *edit) {
+    if (edit->selection_posn==INLINE_INVALID) edit->selection_posn = edit->cursor_posn;
 }
 
-void inline_clearselection(inline_editor *edit) {
-    edit->selection_posn=INLINE_NO_SELECTION;
+static void inline_clearselection(inline_editor *edit) {
+    edit->selection_posn=INLINE_INVALID;
 }
 
 /** Copy selected text */
-void inline_copyselection(inline_editor *edit) {
+static void inline_copyselection(inline_editor *edit) {
     size_t start, end;
     if (inline_selectionrange(edit, NULL, NULL, &start, &end)) 
         inline_copytoclipboard(edit, edit->buffer + start, end - start);
 }
 
 /** Cut selected text */
-void inline_cutselection(inline_editor *edit) {
+static void inline_cutselection(inline_editor *edit) {
     inline_copyselection(edit);
     inline_deleteselection(edit);
 }
 
 /** Paste from clipboard */
-void inline_paste(inline_editor *edit) {
+static void inline_paste(inline_editor *edit) {
     if (edit->clipboard && edit->clipboard_len>0) {
-        if (edit->selection_posn != INLINE_NO_SELECTION) inline_deleteselection(edit); // Replace selection
+        if (edit->selection_posn != INLINE_INVALID) inline_deleteselection(edit); // Replace selection
         inline_insert(edit, edit->clipboard, edit->clipboard_len);
     }
 }
 
 /** Apply current suggestion */
-void inline_applysuggestion(inline_editor *edit) {
+static void inline_applysuggestion(inline_editor *edit) {
     const char *s = inline_currentsuggestion(edit);
     if (!s) return;
 
@@ -985,14 +1051,14 @@ void inline_applysuggestion(inline_editor *edit) {
 }
 
 /** History */
-void inline_historyprev(inline_editor *edit) {
+static void inline_historyprev(inline_editor *edit) {
 }
 
-void inline_historynext(inline_editor *edit) {
+static void inline_historynext(inline_editor *edit) {
 }
 
 /** Handle Ctrl+_ shortcuts */
-bool inline_processshortcut(inline_editor *edit, char c) {
+static bool inline_processshortcut(inline_editor *edit, char c) {
     switch (c) {
         case 'A': inline_home(edit); break;
         case 'B': inline_left(edit); break;
@@ -1015,9 +1081,8 @@ bool inline_processshortcut(inline_editor *edit, char c) {
 }
 
 /** Process a keypress */
-bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
-    bool generatesuggestions=true; 
-    bool clearselection=true;
+static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
+    bool generatesuggestions=true, clearselection=true, endbrowsing=true;
     switch (key->type) {
         case KEY_RETURN: return false; 
         case KEY_LEFT:   inline_left(edit); break;
@@ -1042,20 +1107,26 @@ bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             inline_right(edit);
             clearselection=false; 
             break; 
-        case KEY_UP:     inline_historyprev(edit); break;
-        case KEY_DOWN:   inline_historynext(edit); break;
+        case KEY_UP:
+            inline_advancehistory(edit, -1);
+            endbrowsing=false;
+            break;
+        case KEY_DOWN:
+            inline_advancehistory(edit, 1);
+            endbrowsing=false;
+            break;
         case KEY_HOME:   inline_home(edit);        break;
         case KEY_END:    inline_end(edit);         break;
         case KEY_DELETE: inline_delete(edit);      break;
         case KEY_TAB:
             if (inline_havesuggestions(edit)) {
-                inline_stringlist_advance(&edit->suggestions, 1);
+                inline_advancesuggestions(edit, 1);
                 generatesuggestions=false; 
             }
             break; 
         case KEY_SHIFT_TAB:
             if (inline_havesuggestions(edit)) {
-                inline_stringlist_advance(&edit->suggestions, -1);
+                inline_advancesuggestions(edit, -1);
                 generatesuggestions=false; 
             }
             break; 
@@ -1069,6 +1140,7 @@ bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
 
     if (clearselection) inline_clearselection(edit);
     if (generatesuggestions) inline_generatesuggestions(edit);
+    if (endbrowsing) inline_endbrowsing(edit);
     edit->refresh = true;
     return true;
 }
@@ -1078,7 +1150,7 @@ bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
  * ********************************************************************** */
 
 /** If we're not attached to a terminal, e.g. a pipe, simply read the file in. */
-void inline_noterminal(inline_editor *edit) {
+static void inline_noterminal(inline_editor *edit) {
     int c;
 
     while ((c = fgetc(stdin)) != EOF && c != '\n') {
@@ -1090,7 +1162,7 @@ void inline_noterminal(inline_editor *edit) {
 }
 
 /** If the terminal is unsupported, display a prompt and read the line normally. */
-void inline_unsupported(inline_editor *edit) {
+static void inline_unsupported(inline_editor *edit) {
     fputs(edit->prompt, stdout);
     fflush(stdout);  // Ensure prompt appears
 
@@ -1105,9 +1177,9 @@ void inline_unsupported(inline_editor *edit) {
 }
 
 /** Normal interface if terminal recognized */
-void inline_supported(inline_editor *edit) {
+static void inline_supported(inline_editor *edit) {
+    inline_reset(edit);
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
-    
     inline_updateterminalwidth(edit);
     inline_redraw(edit);
 
@@ -1123,9 +1195,7 @@ void inline_supported(inline_editor *edit) {
 
     inline_disablerawmode(edit);
 
-    /* Add to history if non-empty */
-    // if (edit->buffer_len > 0) inline_history_add(edit, edit->buffer);
-
+    if (edit->buffer_len > 0) inline_addhistory(edit, edit->buffer); // Add to history if non-empty 
     //write(STDOUT_FILENO, "\r\n", 2);
 }
 

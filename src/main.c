@@ -48,13 +48,15 @@ int main(void) {
 
     printf("Editor created successfully.\n");
 
-    char *line = inline_readline(edit);
-
-    if (line) {
-        printf("You entered: '%s'\n", line);
-        free(line);
-    } else {
-        printf("inline_readline returned NULL.\n");
+    for (int i=0; i<10; i++) {
+        char *line = inline_readline(edit);
+        if (line) {
+            printf("You entered: '%s'\n", line);
+            if (strcmp(line, "quit")==0) break;
+            free(line);
+        } else {
+            printf("inline_readline returned NULL.\n");
+        }
     }
 
     inline_free(edit);

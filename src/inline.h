@@ -31,7 +31,7 @@ typedef struct inline_editor inline_editor;
  *  position. The editor does not interpret this value; it is
  *  entirely callback-defined.
  *
- *  @param[in]     buffer   Current contents of the line buffer.
+ *  @param[in]     utf8     Current contents of the line buffer.
  *  @param[in]     ref      User-supplied reference pointer.
  *  @param[in,out] index    Opaque iteration state. Set to zero
  *                          by the editor before the first call.
@@ -41,9 +41,10 @@ typedef struct inline_editor inline_editor;
  *           if the buffer ends with "pr", a suggestion might be
  *           "int" to form "print".
  *
- *  @note The returned string is owned by the callback; the line
- *        editor copies it immediately. */
-typedef char *(*inline_completefn) (const char *buffer, void *ref, size_t *index);
+ *  @note The callback owns the returned string; it may therefore 
+ *        return pointers to static strings or internal buffers. 
+ *        The editor copies the suggestion immediately. */
+typedef char *(*inline_completefn) (const char *utf8, void *ref, size_t *index);
 
 /* -----------------------
  * Syntax coloring
@@ -64,7 +65,7 @@ typedef struct {
  *  @param[out] out     Filled with the next colored span, if any.
  *
  *  @returns true if a span was found, false if no more spans exist. */
-typedef bool (*inline_syntaxcolorfn)(const char *utf8, void *ref, size_t offset, inline_color_span *out);
+typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset, inline_color_span *out);
 
 /* -----------------------
  * Multiline editing
@@ -78,7 +79,7 @@ typedef bool (*inline_syntaxcolorfn)(const char *utf8, void *ref, size_t offset,
  *  @param[in] ref    User-supplied reference pointer.
  *
  *  @returns true if more lines are required, false otherwise. */
-typedef bool (*inline_multilinefn)(const char *utf8, void *ref);
+typedef bool (*inline_multilinefn) (const char *utf8, void *ref);
 
 /* **********************************************************************
  * Public API
