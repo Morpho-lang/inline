@@ -14,23 +14,25 @@ static const char *words[] = {
      NULL };
 
 /** Autocomplete function */
-char *completefn(const char *buffer, void *ref, int index) {
+char *completefn(const char *buffer, void *ref, size_t *index) {
     const char *end = buffer + strlen(buffer);
-    const char *start = end; // Walk backwards to find start of last word
+    const char *start = end;
+
+    // Walk backwards to find start of last word 
     while (start > buffer && isalpha((unsigned char)start[-1])) start--;
 
-    // Now 'start' points to the last token 
     size_t tok_len = end - start;
-    if (!tok_len) return NULL; 
+    if (!tok_len) return NULL;
 
-    // Match against keyword dictionary
-    for (int i = 0; words[i]; i++) {
+    // Match against keyword dictionary, starting at *index
+    for (size_t i = *index; words[i]; i++) {
         if (strncmp(start, words[i], tok_len) == 0) {
-            if (index-- == 0) return (char*)words[i] + tok_len; // Return only the suffix
+            *index = i + 1;  // Advance iteration state 
+            return (char*)words[i] + tok_len;  // Return suffix only 
         }
     }
 
-    return NULL;
+    return NULL; // No more words to match so we're done
 }
 
 int main(void) {

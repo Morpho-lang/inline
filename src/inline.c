@@ -585,10 +585,11 @@ void inline_generatesuggestions(inline_editor *edit) {
     if (edit->selection_posn!=INLINE_NO_SELECTION) return; // Enforce that suggestions cannot be generated while a selection is active
 
     if (edit->buffer && inline_atend(edit)) {
-        for (int i = 0; ; i++) { // Iterate over suggestions
-            char *s = edit->complete_fn(edit->buffer, edit->complete_ref, i);
+        size_t index = 0;
+        for (;;) { // Iterate over suggestions
+            char *s = edit->complete_fn(edit->buffer, edit->complete_ref, &index);
             if (!s) break;
-            inline_addsuggestion(edit, s); 
+            inline_addsuggestion(edit, s);
         }
     }
 }
@@ -688,7 +689,7 @@ bool inline_readraw(rawinput_t *out) {
 /** Identifies the type of keypress */
 typedef enum {
     KEY_UNKNOWN, KEY_CHARACTER,
-    KEY_RETURN, KEY_TAB, KEY_DELETE,
+    KEY_RETURN, KEY_TAB, KEY_SHIFT_TAB, KEY_DELETE,
     KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT,   // Arrow keys
     KEY_HOME, KEY_END,               // Home and End
     KEY_PAGE_UP, KEY_PAGE_DOWN,      // Page up and page down
@@ -728,6 +729,7 @@ static const escmap_t esc_table[] = {
     { "[D",    KEY_LEFT },
     { "[H",    KEY_HOME },
     { "[F",    KEY_END },
+    { "[Z",    KEY_SHIFT_TAB },
     { "[5~",   KEY_PAGE_UP },
     { "[6~",   KEY_PAGE_DOWN },
     { "[1;2C", KEY_SHIFT_RIGHT },
@@ -1014,54 +1016,59 @@ bool inline_processshortcut(inline_editor *edit, char c) {
 
 /** Process a keypress */
 bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
+    bool generatesuggestions=true; 
+    bool clearselection=true;
     switch (key->type) {
         case KEY_RETURN: return false; 
-        case KEY_LEFT:   
-            inline_clearselection(edit);
-            inline_left(edit);         
-            break;
+        case KEY_LEFT:   inline_left(edit); break;
         case KEY_RIGHT:  
-            inline_clearselection(edit);
+            if (inline_havesuggestions(edit)) {
+                const char *suffix = inline_currentsuggestion(edit);
+                if (suffix && *suffix) inline_insert(edit, suffix, strlen(suffix));
+
+                inline_clearsuggestions(edit);
+                generatesuggestions = false;
+                break;
+            }
             inline_right(edit);        
             break;
         case KEY_SHIFT_LEFT: 
             inline_beginselection(edit);
             inline_left(edit);
+            clearselection=false; 
             break; 
         case KEY_SHIFT_RIGHT: 
             inline_beginselection(edit);
             inline_right(edit);
+            clearselection=false; 
             break; 
-        case KEY_UP:
-            inline_clearselection(edit);     
-            inline_historyprev(edit);
-            break;
-        case KEY_DOWN:
-            inline_clearselection(edit);
-            inline_historynext(edit);
-            break;
-        case KEY_HOME:
-            inline_clearselection(edit);   
-            inline_home(edit);
-            break;
-        case KEY_END:    
-            inline_clearselection(edit);
-            inline_end(edit);
-            break;
-        case KEY_DELETE: 
-            inline_delete(edit); 
-            break;
-        case KEY_CTRL:   
-            return inline_processshortcut(edit, key->c[0]);
+        case KEY_UP:     inline_historyprev(edit); break;
+        case KEY_DOWN:   inline_historynext(edit); break;
+        case KEY_HOME:   inline_home(edit);        break;
+        case KEY_END:    inline_end(edit);         break;
+        case KEY_DELETE: inline_delete(edit);      break;
+        case KEY_TAB:
+            if (inline_havesuggestions(edit)) {
+                inline_stringlist_advance(&edit->suggestions, 1);
+                generatesuggestions=false; 
+            }
+            break; 
+        case KEY_SHIFT_TAB:
+            if (inline_havesuggestions(edit)) {
+                inline_stringlist_advance(&edit->suggestions, -1);
+                generatesuggestions=false; 
+            }
+            break; 
+        case KEY_CTRL:  return inline_processshortcut(edit, key->c[0]);
         case KEY_CHARACTER: 
-            inline_clearselection(edit);
             if (!inline_insert(edit, (char *) key->c, key->nbytes)) return false;
             break;
         default:
             break;
     }
 
-    inline_generatesuggestions(edit);
+    if (clearselection) inline_clearselection(edit);
+    if (generatesuggestions) inline_generatesuggestions(edit);
     edit->refresh = true;
     return true;
 }

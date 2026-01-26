@@ -23,19 +23,27 @@ typedef struct inline_editor inline_editor;
 /** @brief Autocomplete callback function.
  *
  *  Called repeatedly by the line editor to obtain completion
- *  suggestions for the given prefix.
- *  @param[in] buffer   Current contents of the buffer.
- *  @param[in] ref      User-supplied reference pointer.
- *  @param[in] index    Zero-based index of the suggestion to return.
+ *  suggestions for the given buffer contents.
  *
- *  @returns A UTF-8 string containing the completion suggestion,
- *           or NULL if no more suggestions exist. The suggestion 
- *           should only include the suffix, e.g for "pr" a suggestion
- *           could be "int" to make "print"
+ *  The editor initializes *index to zero before the first call.
+ *  Each time the callback returns a suggestion, it should update
+ *  *index to an opaque value representing the next iteration
+ *  position. The editor does not interpret this value; it is
+ *  entirely callback-defined.
  *
- *  @note The returned string is owned by the callback; inline copies the
- *        string immediately. */
-typedef char *(*inline_completefn)(const char *buffer, void *ref, int index);
+ *  @param[in]     buffer   Current contents of the line buffer.
+ *  @param[in]     ref      User-supplied reference pointer.
+ *  @param[in,out] index    Opaque iteration state. Set to zero
+ *                          by the editor before the first call.
+ *
+ *  @returns A UTF-8 string containing the completion suffix,
+ *           or NULL if no more suggestions exist. For example,
+ *           if the buffer ends with "pr", a suggestion might be
+ *           "int" to form "print".
+ *
+ *  @note The returned string is owned by the callback; the line
+ *        editor copies it immediately. */
+typedef char *(*inline_completefn) (const char *buffer, void *ref, size_t *index);
 
 /* -----------------------
  * Syntax coloring
@@ -48,8 +56,8 @@ typedef struct {
     int color;     /* Index into color palette */
 } inline_color_span;
 
-/** @brief Syntax coloring callback function, called repeatedly by the editor
- *         to obtain the next colored span.
+/** @brief Syntax coloring callback function, called repeatedly by 
+ *         the editor to obtain the next colored span.
  *  @param[in]  utf8    The full buffer encoded as UTF-8 to analyze.
  *  @param[in]  ref     User-supplied reference pointer.
  *  @param[in]  offset  Byte offset at which to begin scanning.
