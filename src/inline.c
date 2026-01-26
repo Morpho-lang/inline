@@ -318,12 +318,10 @@ static bool inline_enablerawmode(inline_editor *edit) {
     HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE); 
     DWORD mode = 0;
     if (!GetConsoleMode(hIn, &mode)) return false;
-    fprintf(stderr, "stdin mode: 0x%08lx\n", (unsigned long)mode);
     edit->termstate_in = mode;
-    DWORD mask = ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT;
-    DWORD newIn = ((edit->termstate_in & mask) &
-                  ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT )) | ENABLE_VIRTUAL_TERMINAL_INPUT;
-    if (!SetConsoleMode(hIn, newIn)) return false; // Disable cooked mode
+    mode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT); // Disable cooked mode
+    mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+    if (!SetConsoleMode(hIn, mode)) return false; // Disable cooked mode
 
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE); 
     if (!GetConsoleMode(hOut, &edit->termstate_out)) return false;
