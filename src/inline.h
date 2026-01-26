@@ -24,7 +24,7 @@ typedef struct inline_editor inline_editor;
  *
  *  Called repeatedly by the line editor to obtain completion
  *  suggestions for the given prefix.
- *  @param[in] prefix   The current word prefix to complete.
+ *  @param[in] buffer   Current contents of the buffer.
  *  @param[in] ref      User-supplied reference pointer.
  *  @param[in] index    Zero-based index of the suggestion to return.
  *
@@ -35,7 +35,7 @@ typedef struct inline_editor inline_editor;
  *
  *  @note The returned string is owned by the callback; inline copies the
  *        string immediately. */
-typedef char *(*inline_completefn)(const char *prefix, void *ref, int index);
+typedef char *(*inline_completefn)(const char *buffer, void *ref, int index);
 
 /* -----------------------
  * Syntax coloring
