@@ -48,7 +48,7 @@ int main(void) {
 
     printf("Editor created successfully.\n");
 
-    for (int i=0; i<10; i++) {
+    for (int i=0; i<1; i++) {
         char *line = inline_readline(edit);
         if (line) {
             printf("You entered: '%s'\n", line);

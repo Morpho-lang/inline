@@ -161,6 +161,8 @@ void inline_free(inline_editor *editor) {
     free(editor->spans);
     free(editor->palette);
 
+    if (inline_lasteditor==editor) inline_lasteditor = NULL; 
+
     free(editor);
 }
 
@@ -313,8 +315,11 @@ static bool inline_enablerawmode(inline_editor *edit) {
     if (edit->rawmode_enabled) return true;
 
 #ifdef _WIN32 
-    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE); 
-    if (!GetConsoleMode(hIn, &edit->termstate_in)) return false;
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE); 
+    DWORD mode = 0;
+    if (!GetConsoleMode(hIn, &mode)) return false;
+    fprintf(stderr, "stdin mode: 0x%08lx\n", (unsigned long)mode);
+    edit->termstate_in = mode;
     DWORD mask = ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT;
     DWORD newIn = ((edit->termstate_in & mask) &
                   ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT )) | ENABLE_VIRTUAL_TERMINAL_INPUT;
