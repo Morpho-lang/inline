@@ -431,13 +431,18 @@ static inline int inline_utf8length(unsigned char b) {
     return 0;                              // Invalid or continuation
 }
 
-/** Compute grapheme locations - Temporary implementation */
+/** Backup shim to treat codepoints as graphemes */
+static size_t inline_codepointfn(const char *in, const char *end) {
+    return inline_utf8length((unsigned char)*in);
+}
+
+/** Compute grapheme locations */
 static void inline_recomputegraphemes(inline_editor *edit) {
     int needed = (int) edit->buffer_len; // Assume 1 byte per character as a worst case. 
 
     size_t required_bytes = needed * sizeof(size_t); // Ensure capacity
     if (required_bytes > edit->grapheme_size) {
-        size_t newsize = edit->grapheme_size ? edit->grapheme_size : INLINE_DEFAULT_BUFFER_SIZE;
+        size_t newsize = (edit->grapheme_size ? edit->grapheme_size : INLINE_DEFAULT_BUFFER_SIZE);
         while (newsize < required_bytes) newsize *= 2;
 
         size_t *new = realloc(edit->graphemes, newsize);
@@ -450,16 +455,21 @@ static void inline_recomputegraphemes(inline_editor *edit) {
         edit->grapheme_size = newsize;
     }
 
-    // Walk the buffer and record codepoint boundaries  
-    int count = 0;
-    for (size_t i = 0; i < edit->buffer_len; ) {
-        edit->graphemes[count++] = i;
-        size_t len = inline_utf8length((unsigned char)edit->buffer[i]);
-        if (len <= 0) len = 1; // Recover from malformed utf8 
-        i+=len; 
+    // Select splitter
+    inline_graphemefn fn = (edit->grapheme_fn ? edit->grapheme_fn : inline_codepointfn);
+
+    size_t count = 0;
+    const char *p = edit->buffer, *end = edit->buffer + edit->buffer_len;
+
+    while (p < end) { // Walk the buffer and record grapheme boundaries
+        edit->graphemes[count++] = (size_t)(p - edit->buffer);
+        size_t len = fn(p, end);
+        if (len == 0) len = 1; // Malformed grapheme 
+        if (len > (size_t)(end - p)) len = (size_t)(end - p); // Size longer than buffer
+        p += len;
     }
 
-    edit->grapheme_count = count;
+    edit->grapheme_count = (int) count;
 }
 
 /** Finds the start and end of grapheme i in bytes */
