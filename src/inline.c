@@ -419,7 +419,7 @@ static bool inline_extendbufferby(inline_editor *edit, size_t extra) {
 }
 
 /* ----------------------------------------
- * Grapheme buffer
+ * Grapheme splitting
  * ---------------------------------------- */
 
 /** Determine length of utf8 character from the first byte */
@@ -435,6 +435,42 @@ static inline int inline_utf8length(unsigned char b) {
 static size_t inline_codepointfn(const char *in, const char *end) {
     return inline_utf8length((unsigned char)*in);
 }
+
+/** Codepoint definition */
+typedef struct {
+    const char *seq;
+    size_t len;
+} codepoint_t;
+
+#define CODEPOINT(s) { s, sizeof(s)-1 }
+
+/** Suffix codepoints modify the previous codepoint, but don't join */
+static const codepoint_t suffix_extenders[] = {
+    CODEPOINT("\xEF\xB8\x8E"),    // VS15 (U+FE0E) text presentation
+    CODEPOINT("\xEF\xB8\x8F"),    // VS16 (U+FE0F) emoji presentation
+    CODEPOINT("\xE2\x83\xA3"),    // U+20E3 Keycap combining mark
+
+    // Emoji skin tone modifiers U+1F3FB–U+1F3FF
+    CODEPOINT("\xF0\x9F\x8F\xBB"), // light skin tone
+    CODEPOINT("\xF0\x9F\x8F\xBC"), // medium-light skin tone
+    CODEPOINT("\xF0\x9F\x8F\xBD"), // medium skin tone
+    CODEPOINT("\xF0\x9F\x8F\xBE"), // medium-dark skin tone
+    CODEPOINT("\xF0\x9F\x8F\xBF"), // dark skin tone
+};
+
+/* Joiner codepoints connect the next codepoint into the same grapheme */
+static const codepoint_t joiners[] = {
+    CODEPOINT("\xE2\x80\x8D"),   // ZWJ (U+200D)
+};
+
+
+#undef CODEPOINT
+
+/** Minimal grapheme splitter */
+
+/* ----------------------------------------
+ * Grapheme buffer
+ * ---------------------------------------- */
 
 /** Compute grapheme locations */
 static void inline_recomputegraphemes(inline_editor *edit) {
