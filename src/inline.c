@@ -89,6 +89,8 @@ typedef struct inline_editor {
     inline_multilinefn multiline_fn;      // Multiline callback
     void *multiline_ref;                  // User reference
 
+    inline_graphemefn grapheme_fn;        // Custom grapheme splitter
+
     inline_stringlist_t history;          // List of history entries 
 
 #ifdef _WIN32                             // Preserve terminal state 
@@ -118,52 +120,52 @@ static void inline_clearselection(inline_editor *edit);
 
 /** Create a new line editor */
 inline_editor *inline_new(const char *prompt) {
-    inline_editor *editor = calloc(1, sizeof(*editor)); // All contents are zero'd
-    if (!editor) return NULL;
+    inline_editor *edit = calloc(1, sizeof(*edit)); // All contents are zero'd
+    if (!edit) return NULL;
 
-    editor->prompt = inline_strdup(prompt ? prompt : INLINE_DEFAULT_PROMPT);
-    if (!editor->prompt) goto inline_new_cleanup;
+    edit->prompt = inline_strdup(prompt ? prompt : INLINE_DEFAULT_PROMPT);
+    if (!edit->prompt) goto inline_new_cleanup;
 
-    editor->buffer_size = INLINE_DEFAULT_BUFFER_SIZE; // Allocate initial buffer
-    editor->buffer = malloc(editor->buffer_size);
-    if (!editor->buffer) goto inline_new_cleanup;
+    edit->buffer_size = INLINE_DEFAULT_BUFFER_SIZE; // Allocate initial buffer
+    edit->buffer = malloc(edit->buffer_size);
+    if (!edit->buffer) goto inline_new_cleanup;
 
-    editor->buffer[0] = '\0'; // Ensure zero terminated
-    editor->buffer_len = 0;
+    edit->buffer[0] = '\0'; // Ensure zero terminated
+    edit->buffer_len = 0;
 
-    editor->selection_posn = INLINE_INVALID; // No selection
+    edit->selection_posn = INLINE_INVALID; // No selection
 
-    inline_stringlist_init(&editor->suggestions);
-    inline_stringlist_init(&editor->history);
+    inline_stringlist_init(&edit->suggestions);
+    inline_stringlist_init(&edit->history);
 
-    return editor;
+    return edit;
 
 inline_new_cleanup:
-    inline_free(editor);
+    inline_free(edit);
     return NULL; 
 }
 
 void inline_clearsuggestions(inline_editor *edit);
 
 /** Free a line editor and associated resources */
-void inline_free(inline_editor *editor) {
-    if (!editor) return;
+void inline_free(inline_editor *edit) {
+    if (!edit) return;
 
-    free(editor->prompt);
-    free(editor->continuation_prompt);
+    free(edit->prompt);
+    free(edit->continuation_prompt);
 
-    free(editor->buffer);
-    free(editor->graphemes);
-    free(editor->clipboard);
+    free(edit->buffer);
+    free(edit->graphemes);
+    free(edit->clipboard);
 
-    inline_clearsuggestions(editor);
+    inline_clearsuggestions(edit);
 
-    free(editor->spans);
-    free(editor->palette);
+    free(edit->spans);
+    free(edit->palette);
 
-    if (inline_lasteditor==editor) inline_lasteditor = NULL; 
+    if (inline_lasteditor==edit) inline_lasteditor = NULL; 
 
-    free(editor);
+    free(edit);
 }
 
 /* -----------------------
@@ -171,39 +173,44 @@ void inline_free(inline_editor *editor) {
  * ----------------------- */
 
 /** Enable syntax coloring */
-void inline_syntaxcolor(inline_editor *editor, inline_syntaxcolorfn fn, void *ref) {
-    editor->syntax_fn = fn;
-    editor->syntax_ref = ref;
+void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref) {
+    edit->syntax_fn = fn;
+    edit->syntax_ref = ref;
 }
 
 /** Set the color palette */
-void inline_setpalette(inline_editor *editor, int count, const int *palette) {
-    free(editor->palette); // Clear any old palette data
-    editor->palette = NULL;
-    editor->palette_count = 0;
+void inline_setpalette(inline_editor *edit, int count, const int *palette) {
+    free(edit->palette); // Clear any old palette data
+    edit->palette = NULL;
+    edit->palette_count = 0;
 
     if (count <= 0 || palette == NULL) return;
 
-    editor->palette = malloc(sizeof(int) * count);
-    if (!editor->palette) return;
+    edit->palette = malloc(sizeof(int) * count);
+    if (!edit->palette) return;
 
-    memcpy(editor->palette, palette, sizeof(int) * count);
-    editor->palette_count = count;
+    memcpy(edit->palette, palette, sizeof(int) * count);
+    edit->palette_count = count;
 }
 
 /** Enable autocomplete */
-void inline_autocomplete(inline_editor *editor, inline_completefn fn, void *ref) {
-    editor->complete_fn = fn;
-    editor->complete_ref = ref;
+void inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref) {
+    edit->complete_fn = fn;
+    edit->complete_ref = ref;
 }
 
 /** Enable multiline editing */
-void inline_multiline(inline_editor *editor, inline_multilinefn fn, void *ref, const char *continuation_prompt) {
-    editor->multiline_fn = fn;
-    editor->multiline_ref = ref;
+void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt) {
+    edit->multiline_fn = fn;
+    edit->multiline_ref = ref;
 
-    free(editor->continuation_prompt);
-    editor->continuation_prompt = inline_strdup(continuation_prompt ? continuation_prompt : "");
+    free(edit->continuation_prompt);
+    edit->continuation_prompt = inline_strdup(continuation_prompt ? continuation_prompt : "");
+}
+
+/** Use a custom grapheme splitter */
+void inline_graphemesplitter(inline_editor *edit, inline_graphemefn fn) {
+    edit->grapheme_fn = fn; 
 }
 
 /* **********************************************************************
@@ -1053,13 +1060,6 @@ static void inline_applysuggestion(inline_editor *edit) {
     inline_clearsuggestions(edit);
 }
 
-/** History */
-static void inline_historyprev(inline_editor *edit) {
-}
-
-static void inline_historynext(inline_editor *edit) {
-}
-
 /** Handle Ctrl+_ shortcuts */
 static bool inline_processshortcut(inline_editor *edit, char c) {
     switch (c) {
@@ -1185,6 +1185,13 @@ static void inline_supported(inline_editor *edit) {
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
     inline_updateterminalwidth(edit);
     inline_redraw(edit);
+
+    /*rawinput_t raw;
+    for (;;) {
+        inline_readraw(&raw);
+        printf("Key: %3u (0x%02X)\n", raw, (unsigned)raw);
+        if (raw == 'q') break;
+    }*/
 
     keypress_t key; 
     while (inline_readkeypress(edit, &key)) {

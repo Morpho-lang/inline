@@ -81,6 +81,20 @@ typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset
  *  @returns true if more lines are required, false otherwise. */
 typedef bool (*inline_multilinefn) (const char *utf8, void *ref);
 
+/* -----------------------
+ * Grapheme support
+ * ----------------------- */
+
+/** @brief Unicode grapheme splitter callback function
+ *  @param[in]  in         - a string
+ *  @param[in]  end        - end of string
+ *  @returns offset to next grapheme
+ *  @details If provided, inline will use this function to split UTF8 code 
+ *           into graphemes. Shims are provided in the documentation for 
+ *           libgrapheme and libunistring. A fallback implementation is used
+ *           if not provided. */
+typedef size_t (*inline_graphemefn) (const char *in, const char *end);
+
 /* **********************************************************************
  * Public API
  * ********************************************************************** */
@@ -135,6 +149,11 @@ void inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref);
  *  @param[in] ref                  User-supplied reference pointer.
  *  @param[in] continuation_prompt  Prompt to use for continuation lines. */
 void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
+
+/** @brief Supply a custom grapheme splitter.
+ *  @param[in] edit                 Line editor to configure.
+ *  @param[in] fn                   Grapheme callback. */
+void inline_graphemesplitter(inline_editor *edit, inline_graphemefn fn);
 
 /** @brief Display a UTF-8 string using syntax coloring.
  *  @param[in] edit     Line editor to use.
