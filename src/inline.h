@@ -153,7 +153,7 @@ void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, con
 /** @brief Supply a custom grapheme splitter.
  *  @param[in] edit                 Line editor to configure.
  *  @param[in] fn                   Grapheme callback. */
-void inline_graphemesplitter(inline_editor *edit, inline_graphemefn fn);
+void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn);
 
 /** @brief Display a UTF-8 string using syntax coloring.
  *  @param[in] edit     Line editor to use.

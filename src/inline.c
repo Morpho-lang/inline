@@ -110,6 +110,7 @@ static inline_editor *inline_lasteditor = NULL;
 static char *inline_strdup(const char *s); 
 static void inline_disablerawmode(inline_editor *edit);
 static void inline_stringlist_init(inline_stringlist_t *list);
+static void inline_stringlist_free(inline_stringlist_t *list);
 static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes);
 static void inline_clear(inline_editor *edit);
 static void inline_clearselection(inline_editor *edit);
@@ -159,6 +160,7 @@ void inline_free(inline_editor *edit) {
     free(edit->clipboard);
 
     inline_clearsuggestions(edit);
+    inline_stringlist_clear(&edit->history);
 
     free(edit->spans);
     free(edit->palette);
@@ -209,7 +211,7 @@ void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, con
 }
 
 /** Use a custom grapheme splitter */
-void inline_graphemesplitter(inline_editor *edit, inline_graphemefn fn) {
+void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn) {
     edit->grapheme_fn = fn; 
 }
 
@@ -316,6 +318,14 @@ static void inline_registeremergencyhandlers(void) {
 /* ----------------------------------------
  * Switch to/from raw mode
  * ---------------------------------------- */
+
+/** Enable utf8 */
+static void inline_setutf8(void) {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+}
 
 /** Enter raw mode */
 static bool inline_enablerawmode(inline_editor *edit) {
@@ -431,18 +441,13 @@ static inline int inline_utf8length(unsigned char b) {
     return 0;                              // Invalid or continuation
 }
 
-/** Backup shim to treat codepoints as graphemes */
-static size_t inline_codepointfn(const char *in, const char *end) {
-    return inline_utf8length((unsigned char)*in);
-}
-
 /** Codepoint definition */
 typedef struct {
-    const char *seq;
+    const unsigned char *seq;
     size_t len;
 } codepoint_t;
 
-#define CODEPOINT(s) { s, sizeof(s)-1 }
+#define CODEPOINT(s) { (const unsigned char *) s, sizeof(s)-1 }
 
 /** Suffix codepoints modify the previous codepoint, but don't join */
 static const codepoint_t suffix_extenders[] = {
@@ -457,16 +462,65 @@ static const codepoint_t suffix_extenders[] = {
     CODEPOINT("\xF0\x9F\x8F\xBE"), // medium-dark skin tone
     CODEPOINT("\xF0\x9F\x8F\xBF"), // dark skin tone
 };
+static const size_t suffix_count = sizeof(suffix_extenders) / sizeof(suffix_extenders[0]);
 
 /* Joiner codepoints connect the next codepoint into the same grapheme */
 static const codepoint_t joiners[] = {
     CODEPOINT("\xE2\x80\x8D"),   // ZWJ (U+200D)
 };
-
-
+static const size_t joiners_count = sizeof(joiners) / sizeof(joiners[0]);
 #undef CODEPOINT
 
+/** Matches a codepoint against a table of possible matches */
+static size_t inline_matchcodepoint(size_t table_count, const codepoint_t *table, const unsigned char *p, const unsigned char *end) {
+    size_t remaining = (size_t)(end - p);
+    for (size_t i = 0; i < table_count; i++) {
+        const codepoint_t *cp = &table[i];
+        if (remaining >= cp->len && memcmp(p, cp->seq, cp->len) == 0) {
+            return cp->len;
+        }
+    }
+    return 0; // no match
+}
+
 /** Minimal grapheme splitter */
+static size_t inline_graphemesplit(const char *in, const char *end) {
+    const unsigned char *p =  (const unsigned char *) in,
+                        *uend = (const unsigned char *) end;
+    if (p >= uend) return 0; // At end already
+
+    // Read first codepoint
+    size_t len = inline_utf8length(*p);
+    if (len == 0) len = 1; // Recover from malformed utf8 codepoint
+    if ((size_t)(uend - p) < len) return (size_t)(uend - p); 
+    p += len;
+
+    // Combining diacritical marks U+0300–U+036F (accents, etc.)
+    while (p < uend && *p >= 0xCC && *p <= 0xCF) {
+        len = inline_utf8length(*p);
+        if (len == 0 || (size_t)(uend - p) < len) break;
+        p += len;
+    }
+
+    do { // Skip past suffix extenders 
+        len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend);
+        p += len;
+    } while (len!=0);
+
+    for (;;) { // Joiners (ZWJ sequences)
+        len = inline_matchcodepoint(joiners_count, joiners, p, uend);
+        if (len == 0) break;
+        p += len;
+
+        if (p >= uend) break;
+
+        len = inline_utf8length((unsigned char)*p); // Process joined codepoint
+        if (len == 0 || (size_t)(uend - p) < len) break;
+        p += len;
+    }
+
+    return (size_t)(p - (const unsigned char *)in);
+}
 
 /* ----------------------------------------
  * Grapheme buffer
@@ -492,7 +546,7 @@ static void inline_recomputegraphemes(inline_editor *edit) {
     }
 
     // Select splitter
-    inline_graphemefn fn = (edit->grapheme_fn ? edit->grapheme_fn : inline_codepointfn);
+    inline_graphemefn fn = (edit->grapheme_fn ? edit->grapheme_fn : inline_graphemesplit);
 
     size_t count = 0;
     const char *p = edit->buffer, *end = edit->buffer + edit->buffer_len;
@@ -556,7 +610,7 @@ static void inline_stringlist_clear(inline_stringlist_t *list) {
 }
 
 /** Get the current string in a stringlist */
-static const int inline_stringlist_count(inline_stringlist_t *list) {
+static int inline_stringlist_count(inline_stringlist_t *list) {
     return list->count;
 }
 
@@ -1228,6 +1282,7 @@ static void inline_unsupported(inline_editor *edit) {
 /** Normal interface if terminal recognized */
 static void inline_supported(inline_editor *edit) {
     inline_reset(edit);
+    inline_setutf8();
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
     inline_updateterminalwidth(edit);
     inline_redraw(edit);
