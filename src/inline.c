@@ -74,10 +74,6 @@ typedef struct inline_editor {
     inline_syntaxcolorfn syntax_fn;       // Syntax coloring callback
     void *syntax_ref;                     // User reference
 
-    inline_colorspan_t *spans;            // Array of color spans
-    int span_count;                       // Number of spans
-    int span_capacity;                    // Capacity of span array 
-
     int *palette;                         // Palette: list of colors
     int palette_count;                    // Length of palette list
 
@@ -163,7 +159,6 @@ void inline_free(inline_editor *edit) {
     inline_clearsuggestions(edit);
     inline_stringlist_clear(&edit->history);
 
-    free(edit->spans);
     free(edit->palette);
 
     if (inline_lasteditor==edit) inline_lasteditor = NULL; 
@@ -787,8 +782,6 @@ static void inline_reset(inline_editor *edit) {
     inline_clearselection(edit);
     inline_endbrowsing(edit);
     inline_stringlist_clear(&edit->suggestions);
-
-    edit->span_count = 0;
     edit->rawmode_enabled = false;
 }
 

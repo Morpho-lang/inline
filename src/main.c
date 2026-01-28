@@ -43,7 +43,7 @@ static inline void inline_set_colorspan(inline_colorspan_t *s, size_t start, siz
 }
 
 /** Example C syntax highlighter highlighting keywords (col 1), strings (col 2), integers (col 3) */
-static bool c_syntax_highlighter(const char *utf8, void *ref, size_t offset, inline_colorspan_t *out) {
+static bool syntaxhighlighterfn(const char *utf8, void *ref, size_t offset, inline_colorspan_t *out) {
     (void)ref; // unused
 
     if (utf8[offset] == '"') { // Strings
@@ -87,7 +87,6 @@ static bool c_syntax_highlighter(const char *utf8, void *ref, size_t offset, inl
     return true;
 }
 
-
 int main(void) {
     printf("Inline editor test...\n");
 
@@ -98,6 +97,7 @@ int main(void) {
     }
 
     inline_autocomplete(edit, completefn, NULL); // Configure editor with autocomplete
+    inline_syntaxcolor(edit, syntaxhighlighterfn, NULL); // Configure editor with syntax highlighter
 
     printf("Editor created successfully.\n");
 
