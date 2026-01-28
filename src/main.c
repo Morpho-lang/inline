@@ -35,6 +35,59 @@ char *completefn(const char *buffer, void *ref, size_t *index) {
     return NULL; // No more words to match so we're done
 }
 
+/** Set the contents of an inline_color_span_t structure */
+static inline void inline_set_colorspan(inline_colorspan_t *s, size_t start, size_t end, int color) {
+    s->byte_start = start;
+    s->byte_end   = end;
+    s->color      = color;
+}
+
+/** Example C syntax highlighter highlighting keywords (col 1), strings (col 2), integers (col 3) */
+static bool c_syntax_highlighter(const char *utf8, void *ref, size_t offset, inline_colorspan_t *out) {
+    (void)ref; // unused
+
+    if (utf8[offset] == '"') { // Strings
+        size_t start = offset;
+        offset++;
+        for (; utf8[offset] != '\0'; offset++) {
+            if (utf8[offset] == '"' && utf8[offset - 1] != '\\') {
+                offset++;
+                break;
+            }
+        }
+        inline_set_colorspan(out, start, offset, 2);
+        return true;
+    }
+
+    if (isdigit((unsigned char)utf8[offset])) { // Integers
+        size_t start = offset;
+        for (offset++; utf8[offset] && isdigit((unsigned char)utf8[offset]); offset++);
+        inline_set_colorspan(out, start, offset, 3);
+        return true;
+    }
+
+    if (isalpha((unsigned char)utf8[offset]) || utf8[offset] == '_') { // Match keywords
+        size_t start = offset;
+
+        // Find end of token:
+        for (offset++; utf8[offset] && (isalnum((unsigned char)utf8[offset]) || utf8[offset] == '_'); offset++);
+
+        size_t tok_len = offset - start;
+        for (size_t i = 0; words[i]; i++) {
+            const char *w = words[i];
+            if (w[tok_len] == '\0' && strncmp(utf8 + start, w, tok_len) == 0) {
+                inline_set_colorspan(out, start, offset, 1);
+                return true;
+            }
+        }
+    }
+
+
+    inline_set_colorspan(out, offset, offset + 1, 0); // Anything else 
+    return true;
+}
+
+
 int main(void) {
     printf("Inline editor test...\n");
 

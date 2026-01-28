@@ -74,7 +74,7 @@ typedef struct inline_editor {
     inline_syntaxcolorfn syntax_fn;       // Syntax coloring callback
     void *syntax_ref;                     // User reference
 
-    inline_color_span *spans;             // Array of color spans
+    inline_colorspan_t *spans;            // Array of color spans
     int span_count;                       // Number of spans
     int span_capacity;                    // Capacity of span array 
 

@@ -55,7 +55,7 @@ typedef struct {
     size_t byte_start; /* inclusive start of color span */
     size_t byte_end; /* exclusive end of color span */
     int color;     /* Index into color palette */
-} inline_color_span;
+} inline_colorspan_t;
 
 /** @brief Syntax coloring callback function, called repeatedly by 
  *         the editor to obtain the next colored span.
@@ -65,7 +65,7 @@ typedef struct {
  *  @param[out] out     Filled with the next colored span, if any.
  *
  *  @returns true if a span was found, false if no more spans exist. */
-typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset, inline_color_span *out);
+typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset, inline_colorspan_t *out);
 
 /* -----------------------
  * Multiline editing
