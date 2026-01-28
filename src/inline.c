@@ -849,6 +849,7 @@ static void inline_emitcolor(int color) {
 
 /** Redraw the line */
 static void inline_redraw(inline_editor *edit) {
+    write(STDOUT_FILENO, "\x1b[?25l", 6); // Hide cursor to prevent flickering
     write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
 
     size_t prompt_len = strlen(edit->prompt); // Write prompt
@@ -929,6 +930,8 @@ static void inline_redraw(inline_editor *edit) {
     char seq[32];
     int n = snprintf(seq, sizeof(seq), "\r\x1b[%zuC", col);
     write(STDOUT_FILENO, seq, n);
+
+    write(STDOUT_FILENO, "\x1b[?25h", 6); // Show cursor
 }
 
 /* **********************************************************************
