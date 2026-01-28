@@ -826,6 +826,27 @@ static int inline_graphemewidth(const char *p, size_t len) {
     return 1;
 }
 
+/** Writes an escape sequence to produce a given color */
+static void inline_emitcolor(int color) {
+    if (color < 0) return; // default
+    char seq[32];
+    int n = 0;
+
+    if (color < 16) { // ANSI 8 or bright 8
+        int base = (color < 8 ? 30 : 90);
+        n = snprintf(seq, sizeof(seq), "\x1b[%dm", base + (color & 7));
+    } else if (color <= 255) { // 256-color palette 8–255
+        n = snprintf(seq, sizeof(seq), "\x1b[38;5;%dm", color);
+    } else { // Assume RGB packed as 0x01RRGGBB
+        int r = (color >> 16) & 0xFF;
+        int g = (color >> 8)  & 0xFF;
+        int b = (color >> 0)  & 0xFF;
+        n = snprintf(seq, sizeof(seq), "\x1b[38;2;%d;%d;%dm", r, g, b);
+    }
+
+    if (n > 0) write(STDOUT_FILENO, seq, n);
+}
+
 /** Redraw the line */
 static void inline_redraw(inline_editor *edit) {
     write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
@@ -840,19 +861,49 @@ static void inline_redraw(inline_editor *edit) {
         sel_r = imax(edit->selection_posn, edit->cursor_posn);
     }
 
-    for (int i = 0; i < edit->grapheme_count; i++) {
-        if (i == sel_l) write(STDOUT_FILENO, "\x1b[7m", 4); // Turn on inverse video
-        if (i == sel_r) write(STDOUT_FILENO, "\x1b[0m", 4); // Turn off inverse video 
+    size_t off = 0;
+    int g = 0;
+    int current_color = -1;
+    int selection_on = 0;
 
-        // Write grapheme
-        size_t start, end;
-        inline_graphemerange(edit, i, &start, &end);
-        write(STDOUT_FILENO, edit->buffer + start, (unsigned int) end - start);
+    while (off < edit->buffer_len) {
+        inline_colorspan_t span = { .byte_start = off, .byte_end = off + 1, .color = 0 };
+        if (edit->syntax_fn) edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
+        int color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
+
+        if (color != current_color) { // Change  color only if needed
+            if (current_color != -1) {
+                write(STDOUT_FILENO, "\x1b[0m", 4);
+                selection_on = 0; // reset kills selection too
+            }
+            if (color >= 0) inline_emitcolor(color);
+            current_color = color;
+        }
+
+        // Print graphemes until we reach span.byte_end
+        for (; g < edit->grapheme_count; g++) {
+            size_t gs, ge;
+            inline_graphemerange(edit, g, &gs, &ge);
+            if (gs >= span.byte_end) break;
+
+            // Selection toggles
+            if (g == sel_l && !selection_on) {
+                write(STDOUT_FILENO, "\x1b[7m", 4);
+                selection_on = 1;
+            }
+            if (g == sel_r && selection_on) {
+                write(STDOUT_FILENO, "\x1b[0m", 4);
+                selection_on = 0;
+                if (current_color >= 0) inline_emitcolor(current_color); // Reapply syntax color if needed
+            }
+
+            write(STDOUT_FILENO, edit->buffer + gs, (unsigned int)(ge - gs));
+        }
+
+        off = span.byte_end;
     }
 
-    // If selection extends to end, ensure attributes reset
-    if (sel_l != INLINE_INVALID && sel_r == edit->grapheme_count)
-        write(STDOUT_FILENO, "\x1b[0m", 4);
+    if (selection_on || current_color != -1) write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
 
     // Ghosted suggestion suffix 
     const char *suffix = inline_currentsuggestion(edit);

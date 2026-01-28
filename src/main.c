@@ -87,6 +87,13 @@ static bool syntaxhighlighterfn(const char *utf8, void *ref, size_t offset, inli
     return true;
 }
 
+static int palette[] = {
+    -1,  // 0 = default
+     5,  // 1 = purple (keywords)
+     4,  // 2 = dark blue (strings)
+     6   // 3 = cyan (numbers)
+};
+
 int main(void) {
     printf("Inline editor test...\n");
 
@@ -98,6 +105,7 @@ int main(void) {
 
     inline_autocomplete(edit, completefn, NULL); // Configure editor with autocomplete
     inline_syntaxcolor(edit, syntaxhighlighterfn, NULL); // Configure editor with syntax highlighter
+    inline_setpalette(edit, (int) sizeof(palette)/sizeof(int), palette);
 
     printf("Editor created successfully.\n");
 
