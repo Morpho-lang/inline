@@ -95,6 +95,14 @@ typedef bool (*inline_multilinefn) (const char *utf8, void *ref);
  *           if not provided. */
 typedef size_t (*inline_graphemefn) (const char *in, const char *end);
 
+/** @brief Unicode grapheme display width callback function
+ *  @param[in]  g          - a string representing a grapheme
+ *  @param[in]  len        - length of grapheme in bytes
+ *  @returns display width of grapheme in terminal columns
+ *  @details If provided, inline will use this function to calculate the display
+ *           width. A fallback implementation is used if not provided. */
+typedef int (*inline_widthfn)(const char *g, size_t len);
+
 /* **********************************************************************
  * Public API
  * ********************************************************************** */
@@ -154,6 +162,11 @@ void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, con
  *  @param[in] edit                 Line editor to configure.
  *  @param[in] fn                   Grapheme callback. */
 void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn);
+
+/** @brief Supply a custom grapheme display width calculator.
+ *  @param[in] edit                 Line editor to configure.
+ *  @param[in] fn                   Grapheme display width callback. */
+void inline_setgraphemewidth(inline_editor *edit, inline_widthfn fn);
 
 /** @brief Display a UTF-8 string using syntax coloring.
  *  @param[in] edit     Line editor to use.
