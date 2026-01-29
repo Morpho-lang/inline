@@ -896,6 +896,19 @@ static void inline_ensurecursorvisible(inline_editor *edit) {
  * Rendering
  * ********************************************************************** */
 
+#define TERM_RESETCOLOR         "\x1b[0m"
+#define TERM_CLEAR              "\x1b[K"
+#define TERM_RESETFOREGROUND    "\x1b[39m"
+#define TERM_HIDECURSOR         "\x1b[?25l"
+#define TERM_SHOWCURSOR         "\x1b[?25h"
+#define TERM_FAINT              "\x1b[2m"
+#define TERM_INVERSEVIDEO       "\x1b[7m"
+
+/** Write an escape sequence to the terminal */
+static inline void inline_emit(const char *seq) {
+    write(STDOUT_FILENO, seq, strlen(seq));
+}
+
 /** Writes an escape sequence to produce a given color */
 static void inline_emitcolor(int color) {
     if (color < 0) return; // default
@@ -954,7 +967,7 @@ static inline void inline_visiblegraphemerange(inline_editor *edit, int *g_start
 
 /** Redraw the line */
 static void inline_redraw(inline_editor *edit) {
-    write(STDOUT_FILENO, "\x1b[?25l", 6); // Hide cursor to prevent flickering
+    inline_emit(TERM_HIDECURSOR);         // Prevent flickering
     write(STDOUT_FILENO, "\r", 1);        // Move cursor to start of line
 
     size_t prompt_len = strlen(edit->prompt); // Write prompt
@@ -987,7 +1000,7 @@ static void inline_redraw(inline_editor *edit) {
         // Change color only if needed
         if (span_color != current_color) {
             if (current_color != -1) {
-                write(STDOUT_FILENO, "\x1b[0m", 4); // Reset to default mode
+                inline_emit(TERM_RESETCOLOR);
                 selection_on = false;
             }
             if (span_color >= 0) inline_emitcolor(span_color);
@@ -1002,9 +1015,9 @@ static void inline_redraw(inline_editor *edit) {
 
             bool in_selection = (g >= sel_l && g < sel_r); // Are we in a selection?
             if (in_selection != selection_on) {            // Does terminal state match?
-                if (in_selection) write(STDOUT_FILENO, "\x1b[7m", 4); // Start reverse video
+                if (in_selection) inline_emit(TERM_INVERSEVIDEO); // Start reverse video
                 else {
-                    write(STDOUT_FILENO, "\x1b[0m", 4); // Reset to default
+                    inline_emit(TERM_RESETCOLOR);
                     if (current_color >= 0) inline_emitcolor(current_color); // Reapply syntax color
                 }
                 selection_on = in_selection;
@@ -1016,7 +1029,7 @@ static void inline_redraw(inline_editor *edit) {
         off = span.byte_end;
     }
 
-    if (selection_on || current_color != -1) write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
+    if (selection_on || current_color != -1) inline_emit(TERM_RESETCOLOR);
 
     // Locate cursor 
     int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
@@ -1034,13 +1047,13 @@ static void inline_redraw(inline_editor *edit) {
 
         if (ghost_width <= remaining_cols) {
             edit->suggestion_shown=true;
-            write(STDOUT_FILENO, "\x1b[2m", 4);           // faint
+            inline_emit(TERM_FAINT);                      // faint
             write(STDOUT_FILENO, suffix, strlen(suffix)); // ghost text
-            write(STDOUT_FILENO, "\x1b[0m", 4);           // reset
+            inline_emit(TERM_RESETCOLOR);
         }
     }
 
-    write(STDOUT_FILENO, "\x1b[K", 3); // Clear to end of line
+    inline_emit(TERM_CLEAR); // Clear to end of line
 
     // Calculate correct cursor position
     int prompt_width;
@@ -1052,7 +1065,38 @@ static void inline_redraw(inline_editor *edit) {
     int n = snprintf(seq, sizeof(seq), "\r\x1b[%zuC", colpos);
     write(STDOUT_FILENO, seq, n);
 
-    write(STDOUT_FILENO, "\x1b[?25h", 6); // Show cursor
+    inline_emit(TERM_SHOWCURSOR);
+}
+
+/** API function to print a syntax colored string */
+void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
+    if (!edit || !string) return;
+    size_t len = strlen(string);
+
+    if (!edit->syntax_fn || !edit->palette_count) { // Syntax highlighting not configured, fallback to plain
+        write(STDOUT_FILENO, string, len);
+        return;
+    }
+
+    size_t offset = 0;
+    while (offset < len) { // 
+        inline_colorspan_t span;
+
+        bool ok = edit->syntax_fn(string, edit->syntax_ref, offset, &span); // Obtain next span
+        if (!ok) { // No more spans, print the rest uncolored
+            write(STDOUT_FILENO, string + offset, len - offset);
+            return;
+        }
+
+        // Print any uncolored text before the span
+        if (span.byte_start > offset) write(STDOUT_FILENO, string + offset, span.byte_start - offset);
+
+        if (span.color<edit->palette_count) inline_emitcolor(edit->palette[span.color]);
+        write(STDOUT_FILENO, string + span.byte_start, span.byte_end - span.byte_start);
+        inline_emit(TERM_RESETFOREGROUND);
+
+        offset = span.byte_end;
+    }
 }
 
 /* **********************************************************************

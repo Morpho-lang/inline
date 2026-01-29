@@ -112,7 +112,9 @@ int main(void) {
     for (int i=0; i<1; i++) {
         char *line = inline_readline(edit);
         if (line) {
-            printf("You entered: '%s'\n", line);
+            printf("You entered: '"); 
+            inline_displaywithsyntaxcoloring(edit, line);
+            printf("'\n");
             if (strcmp(line, "quit")==0) break;
             free(line);
         } else {
