@@ -1013,21 +1013,31 @@ static void inline_redraw(inline_editor *edit) {
         off = span.byte_end;
     }
 
-    if (selection_on || current_color != -1)
-        write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
+    if (selection_on || current_color != -1) write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
+
+    // Locate cursor 
+    int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
 
     // Ghosted suggestion suffix (only if at right edge)
     const char *suffix = inline_currentsuggestion(edit);
     if (suffix && *suffix && g_end == edit->grapheme_count) {
-        write(STDOUT_FILENO, "\x1b[2m", 4);           // faint
-        write(STDOUT_FILENO, suffix, strlen(suffix)); // ghost text
-        write(STDOUT_FILENO, "\x1b[0m", 4);           // reset
+        int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
+        int remaining_cols = edit->viewport.screen_cols - cursor_col;
+
+        // Width of suggestion
+        int ghost_width = 0;
+        if (!inline_stringwidth(edit, suffix, &ghost_width)) ghost_width = 0; 
+
+        if (ghost_width <= remaining_cols) {
+            write(STDOUT_FILENO, "\x1b[2m", 4);           // faint
+            write(STDOUT_FILENO, suffix, strlen(suffix)); // ghost text
+            write(STDOUT_FILENO, "\x1b[0m", 4);           // reset
+        }
     }
 
     write(STDOUT_FILENO, "\x1b[K", 3); // Clear to end of line
 
     // Calculate correct cursor position
-    int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
     int prompt_width;
     if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width=0;
     size_t colpos = prompt_width + cursor_col;
