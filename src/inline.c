@@ -850,7 +850,7 @@ static void inline_emitcolor(int color) {
 /** Redraw the line */
 static void inline_redraw(inline_editor *edit) {
     write(STDOUT_FILENO, "\x1b[?25l", 6); // Hide cursor to prevent flickering
-    write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
+    write(STDOUT_FILENO, "\r", 1);        // Move cursor to start of line
 
     size_t prompt_len = strlen(edit->prompt); // Write prompt
     write(STDOUT_FILENO, edit->prompt, (unsigned int) prompt_len);
@@ -872,20 +872,26 @@ static void inline_redraw(inline_editor *edit) {
         if (edit->syntax_fn) edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
         int color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
 
-        if (color != current_color) { // Change  color only if needed
-            if (current_color != -1) {
-                write(STDOUT_FILENO, "\x1b[0m", 4);
-                selection_on = 0; // reset kills selection too
-            }
-            if (color >= 0) inline_emitcolor(color);
-            current_color = color;
-        }
-
         // Print graphemes until we reach span.byte_end
         for (; g < edit->grapheme_count; g++) {
             size_t gs, ge;
             inline_graphemerange(edit, g, &gs, &ge);
             if (gs >= span.byte_end) break;
+
+            // Change color only if needed
+            if (color != current_color) {
+                if (current_color != -1) {
+                    write(STDOUT_FILENO, "\x1b[0m", 4); // reset kills selection too
+                    selection_on = 0;
+                }
+                if (color >= 0) inline_emitcolor(color);
+                current_color = color;
+                // If we reset and we're still inside the selection, reapply it
+                if (selection_on == 0 && g >= sel_l && g < sel_r) {
+                    write(STDOUT_FILENO, "\x1b[7m", 4);
+                    selection_on = 1;
+                }
+            }
 
             // Selection toggles
             if (g == sel_l && !selection_on) {
@@ -893,7 +899,7 @@ static void inline_redraw(inline_editor *edit) {
                 selection_on = 1;
             }
             if (g == sel_r && selection_on) {
-                write(STDOUT_FILENO, "\x1b[0m", 4);
+                write(STDOUT_FILENO, "\x1b[0m", 4); // reset kills selection
                 selection_on = 0;
                 if (current_color >= 0) inline_emitcolor(current_color); // Reapply syntax color if needed
             }
@@ -904,9 +910,10 @@ static void inline_redraw(inline_editor *edit) {
         off = span.byte_end;
     }
 
-    if (selection_on || current_color != -1) write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
+    if (selection_on || current_color != -1)
+        write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
 
-    // Ghosted suggestion suffix 
+    // Ghosted suggestion suffix
     const char *suffix = inline_currentsuggestion(edit);
     if (suffix && *suffix) { // Ensure suggestion is present and has nonzero length
         write(STDOUT_FILENO, "\x1b[2m", 4);              // faint
@@ -919,7 +926,7 @@ static void inline_redraw(inline_editor *edit) {
 
     // Move cursor to correct position
     size_t col = prompt_len;
-    inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth); 
+    inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth);
     for (int i = 0; i < edit->cursor_posn; i++) {
         size_t start, end;
         inline_graphemerange(edit, i, &start, &end);
