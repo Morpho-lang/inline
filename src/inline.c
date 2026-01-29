@@ -626,6 +626,23 @@ static int inline_graphemewidth(const char *p, size_t len) {
     return 1;
 }
 
+/** Calculate the display width of a utf8 string using current grapheme splitter/width estimator */
+static bool inline_stringwidth(inline_editor *edit, const char *str, int *width) {
+    inline_graphemefn split_fn = (edit->grapheme_fn ? edit->grapheme_fn : inline_graphemesplit);
+    inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth);
+
+    const char *p = str, *end = str + strlen(str);
+    *width = 0;
+
+    while (p < end) {
+        size_t glen = split_fn(p, end);
+        if (glen == 0) return false; // Malformed utf8 codepoint
+        *width += width_fn(p, glen);
+        p += glen;
+    }
+    return true;
+}
+
 /* ----------------------------------------
  * String lists
  * ---------------------------------------- */
@@ -1011,7 +1028,9 @@ static void inline_redraw(inline_editor *edit) {
 
     // Calculate correct cursor position
     int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
-    size_t colpos = prompt_len + cursor_col;
+    int prompt_width;
+    if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width=0;
+    size_t colpos = prompt_width + cursor_col;
 
     // Move cursor to column `colpos`
     char seq[32];
