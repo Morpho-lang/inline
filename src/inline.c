@@ -89,6 +89,7 @@ typedef struct inline_editor {
     void *complete_ref;                   // User reference 
 
     inline_stringlist_t suggestions;      // List of suggestions from autocompleter
+    bool suggestion_shown;                // Set if renderer was able to show a suggestion
 
     inline_multilinefn multiline_fn;      // Multiline callback
     void *multiline_ref;                  // User reference
@@ -606,7 +607,7 @@ static int inline_graphemewidth(const char *p, size_t len) {
     if (!len) return 0;
     if (g[0] < 0x80) return 1; // ASCII fast path
 
-    if (g[0] == 0xCC || g[0] == 0xCD) return 0; // Combining-only grapheme (rare)
+    if (len >= 2 && g[0] == 0xCC || g[0] == 0xCD) return 0; // Combining-only grapheme (rare)
     if (inline_checkextenders(g, len)) return 2; // Check for ZWJ, VS16 and other extenders
     if (len >= 2 && g[0] == 0xEF && (g[1] == 0xBC || g[1] == 0xBD)) return 2; // Fullwidth forms (U+FF00 block)
 
@@ -862,7 +863,9 @@ static void inline_initviewport(inline_editor *edit) {
     edit->viewport.first_visible_line = 0;
     edit->viewport.first_visible_col  = 0;
     edit->viewport.screen_rows = 1; // Will adjust for multiline editing later
-    edit->viewport.screen_cols = edit->ncols - strlen(edit->prompt); // Terminal width already known.
+    int prompt_width; 
+    if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width = 0; 
+    edit->viewport.screen_cols = edit->ncols - prompt_width; // Terminal width already known.
 }
 
 /** Calculates the cursor display column by walking graphemes and calculating their display width */
@@ -922,7 +925,7 @@ static inline void inline_visiblegraphemerange(inline_editor *edit, int *g_start
     int end_col   = start_col + edit->viewport.screen_cols;
 
     int col = 0;
-    int start = -1;   // <0 means "not found yet"
+    int start = -1;   // < 0 means "not found yet"
     int end   = 0;
 
     for (int i = 0; i < edit->grapheme_count; i++) {
@@ -1020,6 +1023,7 @@ static void inline_redraw(inline_editor *edit) {
 
     // Ghosted suggestion suffix (only if at right edge)
     const char *suffix = inline_currentsuggestion(edit);
+    edit->suggestion_shown=false; 
     if (suffix && *suffix && g_end == edit->grapheme_count) {
         int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
         int remaining_cols = edit->viewport.screen_cols - cursor_col;
@@ -1029,6 +1033,7 @@ static void inline_redraw(inline_editor *edit) {
         if (!inline_stringwidth(edit, suffix, &ghost_width)) ghost_width = 0; 
 
         if (ghost_width <= remaining_cols) {
+            edit->suggestion_shown=true;
             write(STDOUT_FILENO, "\x1b[2m", 4);           // faint
             write(STDOUT_FILENO, suffix, strlen(suffix)); // ghost text
             write(STDOUT_FILENO, "\x1b[0m", 4);           // reset
@@ -1403,7 +1408,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
         case KEY_RETURN: return false; 
         case KEY_LEFT:   inline_left(edit); break;
         case KEY_RIGHT:  
-            if (inline_havesuggestions(edit)) {
+            if (edit->suggestion_shown) {
                 const char *suffix = inline_currentsuggestion(edit);
                 if (suffix && *suffix) inline_insert(edit, suffix, strlen(suffix));
 
@@ -1527,8 +1532,9 @@ static void inline_supported(inline_editor *edit) {
 }
 
 /** Public interface to the line editor.
- *  @param   edit - a line editor that has been created with inline_new.
- *  @returns the string input by the user. */
+ *  @param   edit - an inline_editor that has been created with inline_new.
+ *  @returns a heap-allocated copy of the string input by the user (caller must free),
+ *           or NULL on error. */
 char *inline_readline(inline_editor *edit) {
     if (!edit) return NULL;
 
