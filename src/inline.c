@@ -49,6 +49,14 @@ typedef struct inline_stringlist {
     int index;      // Current index
 } inline_stringlist_t;
 
+/** Viewport */
+typedef struct {
+    int first_visible_line;  // Vertical scroll offset
+    int first_visible_col;   // Horizontal scroll offset
+    int screen_rows;         // Viewport height
+    int screen_cols;         // Viewport width
+} inline_viewport;
+
 /** The editor data structure */
 typedef struct inline_editor {
     char *prompt; 
@@ -89,6 +97,8 @@ typedef struct inline_editor {
     inline_widthfn width_fn;              // Custom grapheme width function
 
     inline_stringlist_t history;          // List of history entries 
+
+    inline_viewport viewport;             // Terminal viewport
 
 #ifdef _WIN32                             // Preserve terminal state 
     termstate_t termstate_in; 
@@ -576,6 +586,47 @@ static inline void inline_graphemerange(inline_editor *edit, int i, size_t *star
 }
 
 /* ----------------------------------------
+ * Grapheme display width
+ * ---------------------------------------- */
+
+/** Check for ZWJ, VS16, keycap */
+static bool inline_checkextenders(const unsigned char *g, size_t len) {
+    for (size_t i = 0; i + 2 < len; i++) {
+        unsigned char a = g[i], b = g[i+1], c = g[i+2];
+        if (a == 0xE2 && b == 0x80 && c == 0x8D) return true;  // ZWJ
+        if (a == 0xEF && b == 0xB8 && c == 0x8F) return true;  // VS16
+        if (a == 0xE2 && b == 0x83 && c == 0xA3) return true;  // keycap
+    }
+    return false;
+}
+
+/** Predict the display width of a grapheme */
+static int inline_graphemewidth(const char *p, size_t len) {
+    const unsigned char *g = (const unsigned char *) p; 
+    if (!len) return 0;
+    if (g[0] < 0x80) return 1; // ASCII fast path
+
+    if (g[0] == 0xCC || g[0] == 0xCD) return 0; // Combining-only grapheme (rare)
+    if (inline_checkextenders(g, len)) return 2; // Check for ZWJ, VS16 and other extenders
+    if (len >= 2 && g[0] == 0xEF && (g[1] == 0xBC || g[1] == 0xBD)) return 2; // Fullwidth forms (U+FF00 block)
+
+    if (len >= 4 && (g[0] & 0xF8) == 0xF0) { // Emoji block (U+1F300–U+1FAFF)
+        if ((g[1] & 0xC0) != 0x80 || (g[2] & 0xC0) != 0x80 || (g[3] & 0xC0) != 0x80) return 1;
+        unsigned cp = ((g[0] & 0x07) << 18) | ((g[1] & 0x3F) << 12) |
+                      ((g[2] & 0x3F) << 6) | (g[3] & 0x3F);
+        if (cp >= 0x1F300 && cp <= 0x1FAFF) return 2;
+    }
+
+    if (len >= 3 && g[0] >= 0xE4 && g[0] <= 0xE9) { // CJK Unified Ideographs (U+4E00–U+9FFF)
+        if ((g[1] & 0xC0) != 0x80 || (g[2] & 0xC0) != 0x80) return 1;
+        unsigned cp = ((g[0] & 0x0F) << 12) | ((g[1] & 0x3F) << 6) | (g[2] & 0x3F);
+        if (cp >= 0x4E00 && cp <= 0x9FFF) return 2;
+    }
+
+    return 1;
+}
+
+/* ----------------------------------------
  * String lists
  * ---------------------------------------- */
 
@@ -785,46 +836,45 @@ static void inline_reset(inline_editor *edit) {
     edit->rawmode_enabled = false;
 }
 
+/* ----------------------------------------
+ * Viewport
+ * ---------------------------------------- */
+
+/** Initialize the viewport */
+static void inline_initviewport(inline_editor *edit) {
+    edit->viewport.first_visible_line = 0;
+    edit->viewport.first_visible_col  = 0;
+    edit->viewport.screen_rows = 1; // Will adjust for multiline editing later
+    edit->viewport.screen_cols = edit->ncols; // Terminal width already known.
+}
+
+/** Calculates the cursor display column by walking graphemes and calculating their display width */
+static int inline_cursorcolumn(inline_editor *edit) {
+    inline_widthfn width_fn = edit->width_fn ? edit->width_fn : inline_graphemewidth;
+    int col = 0;
+    for (int i = 0; i < edit->cursor_posn; i++) {
+        size_t start, end;
+        inline_graphemerange(edit, i, &start, &end);
+        col += width_fn(edit->buffer + start, end - start);
+    }
+    return col;
+}
+
+/** Check the cursor is visible */
+static void inline_ensurecursorvisible(inline_editor *edit) {
+    int cur_col = inline_cursorcolumn(edit); // logical column of cursor
+    if (cur_col < edit->viewport.first_visible_col) { 
+        // If cursor is left of the viewport, scroll left
+        edit->viewport.first_visible_col = cur_col;
+    } else if (cur_col >= edit->viewport.first_visible_col + edit->viewport.screen_cols) {
+        // If cursor is right of the viewport, scroll right
+        edit->viewport.first_visible_col = cur_col - edit->viewport.screen_cols + 1;
+    }
+}
+
 /* **********************************************************************
  * Rendering
  * ********************************************************************** */
-
-/** Check for ZWJ, VS16, keycap */
-static bool inline_checkextenders(const unsigned char *g, size_t len) {
-    for (size_t i = 0; i + 2 < len; i++) {
-        unsigned char a = g[i], b = g[i+1], c = g[i+2];
-        if (a == 0xE2 && b == 0x80 && c == 0x8D) return true;  // ZWJ
-        if (a == 0xEF && b == 0xB8 && c == 0x8F) return true;  // VS16
-        if (a == 0xE2 && b == 0x83 && c == 0xA3) return true;  // keycap
-    }
-    return false;
-}
-
-/** Predict the width of a grapheme */
-static int inline_graphemewidth(const char *p, size_t len) {
-    const unsigned char *g = (const unsigned char *) p; 
-    if (!len) return 0;
-    if (g[0] < 0x80) return 1; // ASCII fast path
-
-    if (g[0] == 0xCC || g[0] == 0xCD) return 0; // Combining-only grapheme (rare)
-    if (inline_checkextenders(g, len)) return 2; // Check for ZWJ, VS16 and other extenders
-    if (len >= 2 && g[0] == 0xEF && (g[1] == 0xBC || g[1] == 0xBD)) return 2; // Fullwidth forms (U+FF00 block)
-
-    if (len >= 4 && (g[0] & 0xF8) == 0xF0) { // Emoji block (U+1F300–U+1FAFF)
-        if ((g[1] & 0xC0) != 0x80 || (g[2] & 0xC0) != 0x80 || (g[3] & 0xC0) != 0x80) return 1;
-        unsigned cp = ((g[0] & 0x07) << 18) | ((g[1] & 0x3F) << 12) |
-                      ((g[2] & 0x3F) << 6) | (g[3] & 0x3F);
-        if (cp >= 0x1F300 && cp <= 0x1FAFF) return 2;
-    }
-
-    if (len >= 3 && g[0] >= 0xE4 && g[0] <= 0xE9) { // CJK Unified Ideographs (U+4E00–U+9FFF)
-        if ((g[1] & 0xC0) != 0x80 || (g[2] & 0xC0) != 0x80) return 1;
-        unsigned cp = ((g[0] & 0x0F) << 12) | ((g[1] & 0x3F) << 6) | (g[2] & 0x3F);
-        if (cp >= 0x4E00 && cp <= 0x9FFF) return 2;
-    }
-
-    return 1;
-}
 
 /** Writes an escape sequence to produce a given color */
 static void inline_emitcolor(int color) {
@@ -916,14 +966,8 @@ static void inline_redraw(inline_editor *edit) {
     // Clear to end of line (in case previous render was longer)
     write(STDOUT_FILENO, "\x1b[K", 3);
 
-    // Move cursor to correct position
-    size_t col = prompt_len;
-    inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth);
-    for (int i = 0; i < edit->cursor_posn; i++) {
-        size_t start, end;
-        inline_graphemerange(edit, i, &start, &end);
-        col += width_fn(edit->buffer + start, end - start);
-    }
+    // Calculate correct cursor position
+    size_t col = prompt_len + inline_cursorcolumn(edit);
 
     // Move cursor to column `col`
     char seq[32];
@@ -1096,6 +1140,18 @@ static bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
  * Input loop
  * ********************************************************************** */
 
+/** Update the cursor position */
+static inline void inline_setcursorposn(inline_editor *edit, int new_posn) {
+    if (new_posn < 0) new_posn = 0;
+    if (new_posn > edit->grapheme_count) new_posn = edit->grapheme_count; // Clamp to [0,grapheme_count]
+
+    if (edit->cursor_posn != new_posn) {
+        edit->cursor_posn = new_posn;
+        inline_ensurecursorvisible(edit);
+        edit->refresh = true;
+    }
+}
+
 /** Insert text into the buffer */
 static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
     if (!inline_extendbufferby(edit, nbytes)) return false; // Ensure capacity 
@@ -1115,9 +1171,9 @@ static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes)
     
     inline_recomputegraphemes(edit); 
 
+    // Move cursor forward by number of graphemes
     int inserted_count = edit->grapheme_count - old_count; 
-    edit->cursor_posn += (inserted_count > 0? inserted_count : 0); // Move cursor forward by number of graphemes
-    if (edit->cursor_posn > edit->grapheme_count) edit->cursor_posn = edit->grapheme_count;
+    inline_setcursorposn(edit, edit->cursor_posn + (inserted_count > 0? inserted_count : 0)); 
 
     edit->refresh = true; // Redraw
     return true;
@@ -1154,8 +1210,8 @@ static void inline_deleteselection(inline_editor *edit) {
 
     inline_deletebytes(edit, start, end); // Delete the selection
 
-    edit->cursor_posn = sel_l; // Cursor moves to start of deleted region
     edit->selection_posn = INLINE_INVALID; // Clear selection
+    inline_setcursorposn(edit, sel_l); // Cursor moves to start of deleted region
 }
 
 /** Delete character under cursor */
@@ -1171,7 +1227,7 @@ static void inline_delete(inline_editor *edit) {
         inline_deleteselection(edit);
     } else if (edit->cursor_posn > 0) { // Delete grapheme before cursor 
         inline_deletegrapheme(edit, edit->cursor_posn - 1);
-        edit->cursor_posn -= 1;
+        inline_setcursorposn(edit, edit->cursor_posn - 1);
     } else inline_deletecurrent(edit);
 }
 
@@ -1180,37 +1236,29 @@ static void inline_clear(inline_editor *edit) {
     edit->buffer_len = 0; // Clear text buffer 
     edit->buffer[0] = '\0';
     edit->grapheme_count = 0; // Reset graphemes
-    edit->cursor_posn = 0; // Reset cursor
+    inline_setcursorposn(edit, 0); // Reset cursor
     edit->refresh = true;
 }
 
 /** Navigation keys */
 static void inline_home(inline_editor *edit) {
-    if (edit->cursor_posn != 0) {
-        edit->cursor_posn = 0;
-        edit->refresh = true;
-    }
+    if (edit->cursor_posn != 0) 
+        inline_setcursorposn(edit, 0); // Reset cursor
 }
 
 static void inline_end(inline_editor *edit) {
-    if (edit->cursor_posn != edit->grapheme_count) {
-        edit->cursor_posn = edit->grapheme_count;
-        edit->refresh = true;
-    }
+    if (edit->cursor_posn != edit->grapheme_count) 
+        inline_setcursorposn(edit, edit->grapheme_count); // Reset cursor
 }
 
 static void inline_left(inline_editor *edit) {
-    if (edit->cursor_posn > 0) {
-        edit->cursor_posn -= 1;
-        edit->refresh = true;
-    }
+    if (edit->cursor_posn > 0) 
+        inline_setcursorposn(edit, edit->cursor_posn - 1);
 }
 
 static void inline_right(inline_editor *edit) {
-    if (edit->cursor_posn < edit->grapheme_count) {
-        edit->cursor_posn += 1;
-        edit->refresh = true;
-    }
+    if (edit->cursor_posn < edit->grapheme_count) 
+        inline_setcursorposn(edit, edit->cursor_posn + 1);
 }
 
 /** Selection */
@@ -1304,10 +1352,12 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             break; 
         case KEY_UP:
             inline_advancehistory(edit, -1);
+            inline_setcursorposn(edit, edit->grapheme_count);
             endbrowsing=false;
             break;
         case KEY_DOWN:
             inline_advancehistory(edit, 1);
+            inline_setcursorposn(edit, edit->grapheme_count);
             endbrowsing=false;
             break;
         case KEY_HOME:   inline_home(edit);        break;
@@ -1377,6 +1427,7 @@ static void inline_supported(inline_editor *edit) {
     inline_setutf8();
     if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
     inline_updateterminalwidth(edit);
+    inline_initviewport(edit);
     inline_redraw(edit);
 
     /*rawinput_t raw;
