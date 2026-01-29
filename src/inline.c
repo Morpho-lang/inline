@@ -855,22 +855,22 @@ static void inline_redraw(inline_editor *edit) {
     size_t prompt_len = strlen(edit->prompt); // Write prompt
     write(STDOUT_FILENO, edit->prompt, (unsigned int) prompt_len);
 
-    // Compute selection bounds, if a selection is active
+    // Compute selection bounds, if active
     int sel_l = INLINE_INVALID, sel_r = INLINE_INVALID;
     if (edit->selection_posn != INLINE_INVALID) {
         sel_l = imin(edit->selection_posn, edit->cursor_posn);
         sel_r = imax(edit->selection_posn, edit->cursor_posn);
     }
-
-    size_t off = 0;
-    int g = 0;
+ 
     int current_color = -1;
-    int selection_on = 0;
-
-    while (off < edit->buffer_len) {
+    bool selection_on = false; // Track the terminal inverse video state
+    
+    int g = 0; // Track grapheme number
+    for (size_t off = 0; off < edit->buffer_len; ) {
+        // Compute color span from current point
         inline_colorspan_t span = { .byte_start = off, .byte_end = off + 1, .color = 0 };
         if (edit->syntax_fn) edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
-        int color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
+        int span_color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
 
         // Print graphemes until we reach span.byte_end
         for (; g < edit->grapheme_count; g++) {
@@ -878,40 +878,32 @@ static void inline_redraw(inline_editor *edit) {
             inline_graphemerange(edit, g, &gs, &ge);
             if (gs >= span.byte_end) break;
 
-            // Change color only if needed
-            if (color != current_color) {
+            if (span_color != current_color) { // Change color only if needed
                 if (current_color != -1) {
-                    write(STDOUT_FILENO, "\x1b[0m", 4); // reset kills selection too
-                    selection_on = 0;
+                    write(STDOUT_FILENO, "\x1b[0m", 4); // Reset to default mode
+                    selection_on = false; // Reset clears selection
                 }
-                if (color >= 0) inline_emitcolor(color);
-                current_color = color;
-                // If we reset and we're still inside the selection, reapply it
-                if (selection_on == 0 && g >= sel_l && g < sel_r) {
-                    write(STDOUT_FILENO, "\x1b[7m", 4);
-                    selection_on = 1;
+                if (span_color >= 0) inline_emitcolor(span_color);
+                current_color = span_color;
+            }
+            
+            bool in_selection = (g >= sel_l && g < sel_r); // Are we in a selection?
+            if (in_selection != selection_on) { // Does the terminal state match whether we're in a selection
+                if (in_selection) {
+                    write(STDOUT_FILENO, "\x1b[7m", 4); // Start reverse video 
+                } else {
+                    write(STDOUT_FILENO, "\x1b[0m", 4); // Reset to default
+                    if (current_color >= 0) inline_emitcolor(current_color); // Reapply syntax color if needed
                 }
-            }
-
-            // Selection toggles
-            if (g == sel_l && !selection_on) {
-                write(STDOUT_FILENO, "\x1b[7m", 4);
-                selection_on = 1;
-            }
-            if (g == sel_r && selection_on) {
-                write(STDOUT_FILENO, "\x1b[0m", 4); // reset kills selection
-                selection_on = 0;
-                if (current_color >= 0) inline_emitcolor(current_color); // Reapply syntax color if needed
+                selection_on = in_selection;
             }
 
             write(STDOUT_FILENO, edit->buffer + gs, (unsigned int)(ge - gs));
         }
-
         off = span.byte_end;
     }
 
-    if (selection_on || current_color != -1)
-        write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
+    if (selection_on || current_color != -1) write(STDOUT_FILENO, "\x1b[0m", 4); // Reset if necessary
 
     // Ghosted suggestion suffix
     const char *suffix = inline_currentsuggestion(edit);
