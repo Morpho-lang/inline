@@ -28,11 +28,11 @@ where `completefn` and `syntaxhighlighterfn` are callback functions defined else
 
 ## Background on Graphemes
 
-A utf8 encoded string is a sequence of unicode codepoints that may be 1-4 bytes in length. A codepoint might be a single byte representing an ASCII character (e.g. the letter Z encoded by 5A), a character from a different alphabet (e.g. Ω encoded by the byte sequence CE A9), or a symbol (e.g. 🦋 encoded as F0 9F A6 8B). 
+A utf8 encoded string is a sequence of Unicode codepoints that may be 1-4 bytes in length. A codepoint might be a single byte representing an ASCII character (e.g. the letter Z encoded by 5A), a character from a different alphabet (e.g. Ω encoded by the byte sequence CE A9), or a symbol (e.g. 🦋 encoded as F0 9F A6 8B). 
 
 A challenge for working with text is that the user's perception of what constitutes a "single" character does not map cleanly onto codepoints. For example, an accented character like á can be represented by the byte sequence C3 A1, but can also be represented by a sequence of two codepoints: 61 representing 'a' followed by CC 81 representing the acute accent.
 
-Emoji can have very complex representations. For example, emoji can have modifiable skin tones like 👍🏽, which is represented by the sequence F0 9F 91 8D (👍 'thumbs up') followed by F0 9F 8F BD (medium skin tone modifier). The emoji 👨‍👩‍👧‍👦, depicting a family, is actually seven codepoints and 25 bytes. 
+Emoji can have very complex representations. For example, emoji can have modifiable skin tones like 👍🏽, which is represented by the sequence F0 9F 91 8D (👍 'thumbs up') followed by F0 9F 8F BD (medium skin tone modifier). The emoji 👨‍👩‍👧‍👦, depicting a possible family, is actually seven codepoints and 25 bytes. 
 
 In each of these cases, the user would expect a user interface to treat these characters as a single coherent unit, which is called a "grapheme". They may well be unaware of the complexities of text representation, and could have obtained it from a number of sources such as selecting it from a menu or copying and pasted from the web.
 
@@ -40,17 +40,21 @@ Any functional line editor must be able to separate the user's input into its co
 
 ## Grapheme splitting 
 
-Recognizing a grapheme is a nontrivial task. The Unicode space is large, and special codepoints that participate in grapheme construction interact in multiple ways. Libraries like `libunistring` or `libgrapheme` provide functions that perform the splitting correctly according to the unicode standard, but are somewhat heavyweight and unnecessary for applications where exotic sequences are not expected. 
+Recognizing a grapheme is a nontrivial task. The Unicode space is large, and special codepoints that participate in grapheme construction interact in multiple ways. Libraries like `libunistring` or `libgrapheme` provide functions that perform the splitting correctly according to the Unicode standard, but are somewhat heavyweight and unnecessary for applications where exotic sequences are not expected. 
 
 Inline therefore take the following approach: a basic grapheme splitter is provided by default that is capable of recognizing many common sequences including those shown above [accents, skin tone modifiers, joined codepoints]. This should be good enough for many use cases. 
 
-Where the default splitter is inadequate, it is very likely that the host application will already include a suitable external library anyway. Inline therefore allows you to supply your own splitter as a callback with the following signature:
+Where the default splitter is inadequate, it is very likely that the host application will already include a suitable external library anyway. Inline therefore allows you to supply your own splitter as a callback by calling a configuration function:
+
+    void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn);
+
+the callback function must have the following signature:
 
     size_t split(const char *in, const char *end);
 
-The callback is provided with the start and end point of a string, and must return the size in bytes of the first grapheme or 0 indicating that no complete grapheme could be read. The callback is expected to be state free and should not allocate memory or modify the input buffer. 
+When called by inline, the callback is provided with the start and end point of a string, and must return the size in bytes of the first grapheme or 0 indicating that no complete grapheme could be read. The callback is expected to be state free and should not allocate memory or modify the input buffer. 
 
-Different unicode libraries provide suitable functions with slightly different signatures, so you should use a shim function like the ones below. 
+Different Unicode libraries provide suitable functions with slightly different signatures, so you should use a shim function like the ones below. 
 
 libunistring: 
 
@@ -70,7 +74,44 @@ libgrapheme:
         return grapheme_next_character_break_utf8(in, end-in);
     }
 
+## Grapheme display width calculations
+
+In order to display and navigate text correctly, a line editor must be able to predict how graphemes will appear on the terminal. Some graphemes occupy a single column, as in a regular ASCII character, but many are wider. While the 👨‍👩‍👧‍👦 emoji contains many codepoints, for example, it is typically displayed in only two columns. In contrast to grapheme separation, which is standardized by the Unicode Consortium, terminal behavior varies widely. Many terminals only handle a subset of graphemes, and some do not display any correctly at all. Even when a grapheme is visually correct, terminal applications may miscalculate their display width, leading to incorrect cursor positioning and other behavior that may appear odd to the user. Some Unicode characters are almost never handled correctly, such as the ⸻ (three-em dash, codepoint 0x2e3b or utf8 byte sequence E2 B8 BB). 
+
+Inline therefore provides a simple heuristic width estimator that works with many terminals and graphemes correctly, but allows the programmer to supply their own by calling a configuration function:
+
+    inline_setgraphemewidth(inline_editor *edit, inline_widthfn fn);
+
+The callback has the following signature:
+
+    typedef int (*inline_widthfn)(const char *g, size_t len);
+
+When called by inline, the callback is provided with a pointer to a grapheme and its length. It should return the display width of the grapheme in columns. 
+
+In practice, programmers embedding inline are expected to override the default width estimator less frequently than the grapheme splitter. Importantly, note that width estimation functions provided by existing libraries (such as `u8_width()` in libunistring) are often *less* correct for interactive terminal use, as they operate on individual codepoints rather than complete graphemes. Typical use cases for supplying a custom width estimator include handling terminal-specific or grapheme-specific quirks or supporting applications that involve complex writing systems.
+
 ## Autocomplete
+
+Inline provides a mechanism for the application to offer autocomplete suggestions to the user. For example, a language REPL might wish to suggest keywords matching partially completed input. Inline handles when and if to offer suggestions but provides a callback mechanism to gather them from you. If you wish to enable the suggestion mechanism, use the configuration function:
+
+    inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref); 
+
+You must supply a callback function, and you may also supply an opaque pointer `ref`. Inline stores `ref` and passes it to the callback, but does not do anything else with it. You may change
+the reference at any time by calling `inline_autocomplete` again. 
+
+The callback has the following signature: 
+
+    typedef char *(*inline_completefn) (const char *utf8, void *ref, size_t *index);
+
+Inline invokes this callback when it wishes to gather suggestions by calling it repeatedly with a pointer to the complete input buffer `utf8` and the reference pointer `ref`. The parameter `index` points to a `size_t` variable that inline initializes to zero at the start of each suggestion-gathering sequence. The callback should return a pointer to a matching completion, or `NULL` when no further matches are available. The callback must update the value of `index` between calls to avoid returning the same suggestion more than once.
+
+Importantly, the returned string must correspond to the *remaining* characters of the suggestion and not the complete match. For example, if the user typed "ty" in an application reading C source code, the callback would recognize "typedef" as a matching completion and would return "pedef". Typically this is achieved by returning an offset pointer `(match + strlen(partialmatch))`.
+
+Inline does not interpret the contents of the `index` variable beyond initializing it to zero. This allows applications to implement the callback using a variety of data structures, such as linear scans, trees, or hash tables, without imposing additional constraints.
+
+Inline immediately copies any returned suggestion string and does not attempt to free the pointer returned by the callback. In practice, suggestions are usually drawn from static strings or from existing data structures such as symbol tables. The callback may therefore safely return a pointer into an existing string, provided it remains valid until the next call.
+
+Autocomplete callbacks should be implemented efficiently to ensure a smooth user experience. Avoid memory allocation or expensive matching operations within the callback.
 
 ## Syntax highlighting
 
