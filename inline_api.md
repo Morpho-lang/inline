@@ -117,6 +117,20 @@ Autocomplete callbacks should be implemented efficiently to ensure a smooth user
 
 ## Multiline editing
 
-## Utility functions
+## Termimal helper functions
 
-Inline also provides a couple of functions to assist programmers implementing terminal applications. 
+Inline also provides a small number of utility functions to assist programmers implementing terminal-based applications. 
+
+The first,
+
+    bool inline_checktty(void);
+
+returns `true` if both `stdin` and `stdout` refer to terminal devices capable of interactive input and output, and `false` otherwise. This can be used to detect whether the application is running in an interactive terminal or whether input or output has been redirected (for example, via a UNIX pipe or file).
+
+To display a string using inline’s syntax highlighting mechanism without enabling interactive editing, use: 
+
+    void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string);
+
+This function applies the same syntax highlighting callback configuration used by the interactive editor, but does not read input or modify editor state. It simply renders the supplied string to the terminal, with no newline appended, and resets the terminal state after rendering.
+
+A language REPL could use this, for example, to display source code with error messages or the ability to list sections of code in a debugger. 
