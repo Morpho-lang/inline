@@ -127,7 +127,7 @@ static void inline_clearselection(inline_editor *edit);
  * New/free API
  * ----------------------- */
 
-/** Create a new line editor */
+/** API function to create a new line editor */
 inline_editor *inline_new(const char *prompt) {
     inline_editor *edit = calloc(1, sizeof(*edit)); // All contents are zero'd
     if (!edit) return NULL;
@@ -156,7 +156,7 @@ inline_new_cleanup:
 
 void inline_clearsuggestions(inline_editor *edit);
 
-/** Free a line editor and associated resources */
+/** API function to free a line editor and associated resources */
 void inline_free(inline_editor *edit) {
     if (!edit) return;
 
@@ -181,13 +181,13 @@ void inline_free(inline_editor *edit) {
  * Configuration API
  * ----------------------- */
 
-/** Enable syntax coloring */
+/** API function to enable syntax coloring */
 void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref) {
     edit->syntax_fn = fn;
     edit->syntax_ref = ref;
 }
 
-/** Set the color palette */
+/** API function to set the color palette */
 void inline_setpalette(inline_editor *edit, int count, const int *palette) {
     free(edit->palette); // Clear any old palette data
     edit->palette = NULL;
@@ -202,13 +202,13 @@ void inline_setpalette(inline_editor *edit, int count, const int *palette) {
     edit->palette_count = count;
 }
 
-/** Enable autocomplete */
+/** API function to enable autocomplete */
 void inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref) {
     edit->complete_fn = fn;
     edit->complete_ref = ref;
 }
 
-/** Enable multiline editing */
+/** API function to enable multiline editing */
 void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt) {
     edit->multiline_fn = fn;
     edit->multiline_ref = ref;
@@ -217,12 +217,12 @@ void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, con
     edit->continuation_prompt = inline_strdup(continuation_prompt ? continuation_prompt : "");
 }
 
-/** Use a custom grapheme splitter */
+/** API function to use a custom grapheme splitter */
 void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn) {
     edit->grapheme_fn = fn; 
 }
 
-/** Use a custom grapheme width function */
+/** API function to use a custom grapheme width function */
 void inline_setgraphemewidth(inline_editor *edit, inline_widthfn fn) {
     edit->width_fn = fn; 
 }
@@ -235,7 +235,7 @@ void inline_setgraphemewidth(inline_editor *edit, inline_widthfn fn) {
  * Check terminal features
  * ---------------------------------------- */
 
-/** Check whether stdin and stdout are TTYs. */
+/** API function to check whether stdin and stdout are TTYs. */
 bool inline_checktty(void) {
     return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
 }
@@ -1575,7 +1575,7 @@ static void inline_supported(inline_editor *edit) {
     //write(STDOUT_FILENO, "\r\n", 2);
 }
 
-/** Public interface to the line editor.
+/** API function to read a line of text from the user.
  *  @param   edit - an inline_editor that has been created with inline_new.
  *  @returns a heap-allocated copy of the string input by the user (caller must free),
  *           or NULL on error. */
