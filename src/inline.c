@@ -122,6 +122,7 @@ static void inline_stringlist_clear(inline_stringlist_t *list);
 static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes);
 static void inline_clear(inline_editor *edit);
 static void inline_clearselection(inline_editor *edit);
+static void inline_clearsuggestions(inline_editor *edit);
 
 /* -----------------------
  * New/free API
@@ -153,8 +154,6 @@ inline_new_cleanup:
     inline_free(edit);
     return NULL; 
 }
-
-void inline_clearsuggestions(inline_editor *edit);
 
 /** API function to free a line editor and associated resources */
 void inline_free(inline_editor *edit) {
@@ -607,7 +606,7 @@ static int inline_graphemewidth(const char *p, size_t len) {
     if (!len) return 0;
     if (g[0] < 0x80) return 1; // ASCII fast path
 
-    if (len >= 2 && g[0] == 0xCC || g[0] == 0xCD) return 0; // Combining-only grapheme (rare)
+    if (len >= 2 && (g[0] == 0xCC || g[0] == 0xCD)) return 0; // Combining-only grapheme (rare)
     if (inline_checkextenders(g, len)) return 2; // Check for ZWJ, VS16 and other extenders
     if (len >= 2 && g[0] == 0xEF && (g[1] == 0xBC || g[1] == 0xBD)) return 2; // Fullwidth forms (U+FF00 block)
 
@@ -793,7 +792,7 @@ static bool inline_havesuggestions(inline_editor *edit) {
 }
 
 /** Returns the current suggestion */
-static char *inline_currentsuggestion(inline_editor *edit) {
+static const char *inline_currentsuggestion(inline_editor *edit) {
     if (!inline_havesuggestions(edit)) return NULL;
     return inline_stringlist_current(&edit->suggestions);
 }
@@ -1415,10 +1414,8 @@ static void inline_paste(inline_editor *edit) {
 
 /** Apply current suggestion */
 static void inline_applysuggestion(inline_editor *edit) {
-    const char *s = inline_currentsuggestion(edit);
-    if (!s) return;
-
-    inline_insert(edit, s, strlen(s));
+    const char *suffix = inline_currentsuggestion(edit);
+    if (suffix && *suffix) inline_insert(edit, suffix, strlen(suffix));
     inline_clearsuggestions(edit);
 }
 
@@ -1453,10 +1450,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
         case KEY_LEFT:   inline_left(edit); break;
         case KEY_RIGHT:  
             if (edit->suggestion_shown) {
-                const char *suffix = inline_currentsuggestion(edit);
-                if (suffix && *suffix) inline_insert(edit, suffix, strlen(suffix));
-
-                inline_clearsuggestions(edit);
+                inline_applysuggestion(edit);
                 generatesuggestions = false;
                 break;
             }
@@ -1572,7 +1566,7 @@ static void inline_supported(inline_editor *edit) {
     inline_disablerawmode(edit);
 
     if (edit->buffer_len > 0) inline_addhistory(edit, edit->buffer); // Add to history if non-empty 
-    //write(STDOUT_FILENO, "\r\n", 2);
+    write(STDOUT_FILENO, "\r\n", 2);
 }
 
 /** API function to read a line of text from the user.
