@@ -117,6 +117,8 @@ Autocomplete callbacks should be implemented efficiently to ensure a smooth user
 
 ## Multiline editing
 
+
+
 ## Termimal helper functions
 
 Inline also provides a small number of utility functions to assist programmers implementing terminal-based applications. 

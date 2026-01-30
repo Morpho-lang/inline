@@ -94,6 +94,19 @@ static int palette[] = {
      6   // 3 = cyan (numbers)
 };
 
+/** Multiline function */
+static bool multilinefn(const char *in, void *ref) {
+    int nb=0; 
+    for (char *c=in; *c!='\0'; c++) { // Match brackets
+        switch (*c) {
+            case '(': case '{': case '[': nb+=1; break; 
+            case ')': case '}': case ']': nb-=1; break;
+            default: break; 
+        }
+    }
+    return (nb>0); // Is there an unmatched bracket?
+}
+
 int main(void) {
     printf("Inline editor test...\n");
 
@@ -106,6 +119,7 @@ int main(void) {
     inline_autocomplete(edit, completefn, NULL); // Configure editor with autocomplete
     inline_syntaxcolor(edit, syntaxhighlighterfn, NULL); // Configure editor with syntax highlighter
     inline_setpalette(edit, (int) sizeof(palette)/sizeof(int), palette);
+    inline_multiline(edit, multilinefn, NULL, "~ "); // Configure editor for multiline editing
 
     printf("Editor created successfully.\n");
 
