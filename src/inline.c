@@ -1446,7 +1446,12 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
 static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     bool generatesuggestions=true, clearselection=true, endbrowsing=true;
     switch (key->type) {
-        case KEY_RETURN: return false; 
+        case KEY_RETURN: 
+            if (!edit->multiline_fn ||
+                !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
+            if (!inline_insert(edit, "\n", 1)) return false;
+            generatesuggestions = false;  // newline shouldn't trigger suggestion
+            break;
         case KEY_LEFT:   inline_left(edit); break;
         case KEY_RIGHT:  
             if (edit->suggestion_shown) {
