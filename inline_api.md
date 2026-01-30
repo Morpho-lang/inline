@@ -2,7 +2,7 @@
 
 Inline is a small, grapheme-aware line editor designed for embedding in other applications. It provides a modern text model and features such as syntax highlighting, history, autocomplete, copy/paste, and multiline editing, while remaining lightweight and portable.
 
-This document describes the complete inline API; the 11 API functions are also documented in inline.h
+This document describes the complete inline API; the 11 API functions are also documented in inline.h. An example application that reads lines of C source code with all features is provided to illustrate how to implement callbacks required by the API. 
 
 ## Minimal line editing
 
