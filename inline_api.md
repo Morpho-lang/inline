@@ -4,6 +4,10 @@ Inline is a small, grapheme-aware line editor designed for embedding in other ap
 
 This document describes the complete inline API; the 11 API functions are also documented in inline.h. An example application that reads lines of C source code with all features is provided to illustrate how to implement callbacks required by the API. 
 
+In this document, “grapheme” refers to a Unicode extended grapheme cluster as defined by Unicode Standard Annex #29.
+
+
+
 ## Minimal line editing
 
 A minimal line editor is set up and used in a few lines of C: 
@@ -115,9 +119,72 @@ Autocomplete callbacks should be implemented efficiently to ensure a smooth user
 
 ## Syntax highlighting
 
+Syntax highlighting is a feature that displays elements of the buffer in different colors to provide the user with semantic information and facilitate their reading of the text. This is provided via a callback mechanism with a simple division of labor: the callback is responsible for parsing the text and deciding which elements should be highlighted and the color to use, while inline is responsible for the actual display. 
+
+To enable the feature, you must call the configuration function:
+
+    inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref);
+
+You must supply a callback function and an opaque reference pointer `ref`, which can be `NULL`. Inline stores the pointer and passes it to the callback but does not otherwise attempt to examine the contents. To change the reference pointer, simply call `inline_syntaxcolor` again with a new value. It is also necessary to provide a palette as will be described below. 
+
+The callback has the following signature: 
+
+    typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset, inline_colorspan_t *out);
+
+When inline wishes to understand how to highlight the buffer, it repeatedly calls the callback to determine the next span to color. The complete contents of the input buffer are passed in `utf8`. The callback should start scanning the buffer from byte offset `offset` and determine the next span to color. When it has done so, it fills out the structure `inline_colorspan_t` is a structure the callback fills out: 
+
+    typedef struct {
+        size_t byte_start; /* inclusive start of color span */
+        size_t byte_end; /* exclusive end of color span */
+        int color;     /* Index into color palette */
+    } inline_colorspan_t;
+
+The callback must update the `byte_end` and `color` entries, notably must always advance `byte_end` beyond `offset` or undefined behavior occurs. Note that the `color` entry is an index into a palette array, not a color value directly. The callback should return `true` if there are more spans to color and `false` to halt highlighting and display any remaining text in the default color. Inline resets terminal attributes at the end of each redraw.
+
+The palette is configured by calling: 
+
+    inline_setpalette(inline_editor *edit, int count, const int *palette);
+
+The caller supplies an array of integers representing colors and `count` indicating the length of the array. Inline copies the contents of the array and does not store the pointer you supply. 
+
+Colors are encoded as follows: 
+
+* The value of -1 indicates "use the default text color". 
+* Values 0-7 are the classic ANSI terminal colors. inline.h supplies macros for these: INLINE_BLACK, INLINE_RED, INLINE_GREEN, INLINE_YELLOW, INLINE_BLUE, INLINE_MAGENTA, INLINE_CYAN, INLINE_WHITE.
+* Values 8-255 are color codes for 256 color terminals. 256 color terminals use values 0-7 the same as the ANSI terminals.
+* 24-bit RGB colors are encoded as 0x01RRGGBB. Note that the high byte is set to 1 to enable inline to distinguish purely blue shades from 256 color mode codes.
+
+Inline does not validate color values; invalid values result in undefined terminal output. Not all terminals provide 24-bit color or even 256 color modes and inline does not attempt to determine the color capabilities of the terminal automatically at runtime. It is therefore recommended that color settings be provided as a user-configurable option in the host application. 
+
 ## Multiline editing
 
+Multiline editing is enabled by calling a configuration function:
 
+    void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
+
+You must supply a callback that is used to decide whether to enter multiline mode given particular input, and an opaque reference pointer `ref` that will be supplied to the callback, which can be `NULL`. As for other inline API functions, inline simply stores this reference and does not attempt to inspect or modify its contents. You may also specify a special prompt `continuation_prompt` that will be displayed only on continuation lines, or supply `NULL` to use the default prompt. Inline copies this prompt immediately and does not store the string you supply.
+
+The callback has the following signature: 
+
+    typedef bool (*inline_multilinefn) (const char *utf8, void *ref);
+
+When inline wishes to decide whether to enter multiline editing mode---typically this might happen when the user presses the Return or Enter key---it calls your callback with the complete contents of the input buffer in `utf8` and the reference pointer you supplied at configuration. 
+
+The callback should inspect the text and return `true` to enter multiline mode or `false` otherwise. If the callback returns `true`, inline inserts a newline into the input buffer and continues editing on a new line. When the callback later returns `false`, multiline mode ends and  `inline_readline` returns the complete buffer (including embedded newlines).
+
+The callback should be fast and side-effect free; it may be called on every Enter press. Hence, the decision is usually made heuristically rather than by detailed parsing. This simple example checks for an unmatched opening parenthesis for example, as might be useful in implementing a simple calculator or LISP interpreter:
+
+    static bool multilinefn(const char *in, void *ref) {
+        int nb=0; 
+        for (char *c=in; *c!='\0'; c++) { // Match parentheses
+            switch (*c) {
+                case '(': nb+=1; break; 
+                case ')': nb-=1; break;
+                default: break; 
+            }
+        }
+        return (nb>0); // Is there an unmatched left parenthesis?
+    }
 
 ## Termimal helper functions
 

@@ -97,7 +97,7 @@ static int palette[] = {
 /** Multiline function */
 static bool multilinefn(const char *in, void *ref) {
     int nb=0; 
-    for (char *c=in; *c!='\0'; c++) { // Match brackets
+    for (const char *c=in; *c!='\0'; c++) { // Match brackets
         switch (*c) {
             case '(': case '{': case '[': nb+=1; break; 
             case ')': case '}': case ']': nb-=1; break;

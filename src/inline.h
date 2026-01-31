@@ -128,14 +128,24 @@ char *inline_readline(inline_editor *edit);
  *  @param[in] ref    User-supplied reference pointer. */
 void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref);
 
+/** Macros for basic ANSI terminal colors */
+#define INLINE_BLACK        0
+#define INLINE_RED          1
+#define INLINE_GREEN        2
+#define INLINE_YELLOW       3
+#define INLINE_BLUE         4
+#define INLINE_MAGENTA      5
+#define INLINE_CYAN         6
+#define INLINE_WHITE        7
+
 /** @brief Set the color palette used for syntax highlighting.
  *
  *  Color indices returned by a inline_syntaxcolorfn are mapped
  *  through this palette to a final color value. The palette is copied by 
  *  the inline_editor. Color values are interpreted:
  *
- *      -1            → default color
- *       0–7          → ANSI basic colors
+ *      -1            → default color 
+ *       0–7          → ANSI basic colors (see macros above)
  *       8–255        → 256-color palette
  *       >=0x01000000 → RGB packed as 0x01RRGGBB
  *
