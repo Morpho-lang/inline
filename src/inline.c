@@ -30,6 +30,8 @@
 #define INLINE_DEFAULT_BUFFER_SIZE 128
 #define INLINE_DEFAULT_PROMPT ">"
 
+#define INLINE_ESCAPECODE_MAXLENGTH 32
+
 #define INLINE_INVALID -1 
 
 #ifdef _WIN32
@@ -76,6 +78,10 @@ typedef struct inline_editor {
     int grapheme_count;                   // Number of graphemes
     size_t grapheme_size;                 // Size of grapheme buffer in bytes
 
+    size_t *lines;                        // Offset to each line
+    int line_count;                       // Number of lines
+    size_t line_size;                     // Size of line buffer in bytes
+
     int cursor_posn;                      // Position of cursor in graphemes
     int selection_posn;                   // Selection posn in graphemes 
 
@@ -119,6 +125,8 @@ static char *inline_strdup(const char *s);
 static void inline_disablerawmode(inline_editor *edit);
 static void inline_stringlist_init(inline_stringlist_t *list);
 static void inline_stringlist_clear(inline_stringlist_t *list);
+static void inline_recomputelines(inline_editor *edit);
+static void inline_recomputegraphemes(inline_editor *edit);
 static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes);
 static void inline_clear(inline_editor *edit);
 static void inline_clearselection(inline_editor *edit);
@@ -148,6 +156,9 @@ inline_editor *inline_new(const char *prompt) {
     inline_stringlist_init(&edit->suggestions);
     inline_stringlist_init(&edit->history);
 
+    inline_recomputegraphemes(edit);
+    inline_recomputelines(edit);
+
     return edit;
 
 inline_new_cleanup:
@@ -164,6 +175,7 @@ void inline_free(inline_editor *edit) {
 
     free(edit->buffer);
     free(edit->graphemes);
+    free(edit->lines);
     free(edit->clipboard);
 
     inline_clearsuggestions(edit);
@@ -539,7 +551,7 @@ static size_t inline_graphemesplit(const char *in, const char *end) {
 
 /** Compute grapheme locations */
 static void inline_recomputegraphemes(inline_editor *edit) {
-    int needed = (int) edit->buffer_len; // Assume 1 byte per character as a worst case. 
+    int needed = (int) edit->buffer_len + 1; // Assume 1 byte per character as a worst case + sentinel
 
     size_t required_bytes = needed * sizeof(size_t); // Ensure capacity
     if (required_bytes > edit->grapheme_size) {
@@ -570,6 +582,7 @@ static void inline_recomputegraphemes(inline_editor *edit) {
         p += len;
     }
 
+    edit->graphemes[count] = edit->buffer_len; // Ensure last entry points to end of buffer
     edit->grapheme_count = (int) count;
 }
 
@@ -582,7 +595,7 @@ static inline void inline_graphemerange(inline_editor *edit, int i, size_t *star
     }
 
     if (start) *start = edit->graphemes[i];
-    if (end) *end = ((i + 1 < edit->grapheme_count) ? edit->graphemes[i + 1] : edit->buffer_len);
+    if (end) *end = edit->graphemes[i+1];
 }
 
 /** Finds the first grapheme index using binary search whose start byte is >= byte_off */
@@ -906,6 +919,33 @@ static void inline_ensurecursorvisible(inline_editor *edit) {
     }
 }
 
+/** Compute line locations */
+static void inline_recomputelines(inline_editor *edit) {
+    int count = 0;
+
+    for (int g = 0; g < edit->grapheme_count; g++) // Count newline graphemes
+        if (edit->buffer[edit->graphemes[g]] == '\n') count++;
+
+    size_t needed = sizeof(size_t) * (count + 2); // Need count+2 entries: first line + each newline + sentinel
+    if (needed > edit->line_size) {
+        size_t *new = realloc(edit->lines, needed);
+        if (!new) return;
+        edit->lines = new;
+        edit->line_size = needed;
+    }
+
+    int i = 0;
+    edit->lines[i++] = 0; // First line always starts at 0
+
+    for (int g = 0; g < edit->grapheme_count; g++)  // Subsequent lines start after each newline
+        if (edit->buffer[edit->graphemes[g]] == '\n')
+            edit->lines[i++] = edit->graphemes[g] + 1;
+
+    edit->lines[i] = edit->buffer_len; // Sentinel
+    edit->line_count = i;
+
+}
+
 /* **********************************************************************
  * Rendering
  * ********************************************************************** */
@@ -926,7 +966,7 @@ static inline void inline_emit(const char *seq) {
 /** Writes an escape sequence to produce a given color */
 static void inline_emitcolor(int color) {
     if (color < 0) return; // default
-    char seq[32];
+    char seq[INLINE_ESCAPECODE_MAXLENGTH];
     int n = 0;
 
     if (color < 16) { // ANSI 8 or bright 8
@@ -995,13 +1035,12 @@ static inline void inline_clipgraphemerange(inline_editor *edit, int prompt_widt
         inline_graphemerange(edit, i, &s, &e);
         int w = width_fn(edit->buffer + s, e - s);
 
-        if (start < 0) { // Haven't entered visible region yet
-            if (col + w > start_col) start = i; // Record first visible grapheme
-        } else { // Inside visible region
-            if (col >= end_col) break;   // Past right edge
-            end = i + 1;
+        if ((col + w > start_col) && (col < end_col)) {
+            if (start < 0) start = i;        // first visible grapheme
+            end = i + 1;                     // extend visible range
         }
 
+        if (col >= end_col) break;
         col += w;
     }
 
@@ -1012,10 +1051,72 @@ static inline void inline_clipgraphemerange(inline_editor *edit, int prompt_widt
     *g_end   = end;
 }
 
+/** Move terminal cursor to the editor's origin given the current cursor row */
+static inline void inline_movetoorigin(int cursor_row) {
+    write(STDOUT_FILENO, "\r", 1); // Move to start of current line
 
-/** Render a single line of text */
+    if (cursor_row > 0) { // Move up cursor_row lines
+        char seq[INLINE_ESCAPECODE_MAXLENGTH];
+        int n = snprintf(seq, sizeof(seq), "\x1b[%dA", cursor_row);
+        write(STDOUT_FILENO, seq, n);
+    }
+}
+
+/** Move to a given (row,col) */
+static inline void inline_moveto(int row, int col) {
+    char seq[INLINE_ESCAPECODE_MAXLENGTH];
+
+    if (row > 0) { // Move down to target row
+        int n = snprintf(seq, sizeof(seq), "\x1b[%dB", row);
+        write(STDOUT_FILENO, seq, n);
+    }
+
+    if (col > 0) { // Move right to target column
+        int n = snprintf(seq, sizeof(seq), "\x1b[%dC", col);
+        write(STDOUT_FILENO, seq, n);
+    }
+}
+
+/** Move the cursor by a specified delta; down is positive dy */
+static inline void inline_moveby(int dx, int dy) {
+    char seq[INLINE_ESCAPECODE_MAXLENGTH];
+
+    if (dy!=0) { // Vertical 
+        int n = snprintf(seq, sizeof(seq), "\x1b[%d%c", abs(dy), (dy < 0 ? 'A' : 'B'));
+        write(STDOUT_FILENO, seq, n);
+    }
+
+    if (dx!=0) { // Horizontal
+        int n = snprintf(seq, sizeof(seq), "\x1b[%d%c", abs(dx), (dx < 0 ? 'D' : 'C'));
+        write(STDOUT_FILENO, seq, n);
+    }
+}
+
+/** Compute logical cursor position in rows and columns */
+static void inline_cursorposn(inline_editor *edit, int *out_row, int *out_col) {
+    size_t byte_pos = edit->graphemes[edit->cursor_posn];  // byte offset of cursor
+
+    int row = 0; // Find the row containing the cursor
+    while (row + 1 < edit->line_count && edit->lines[row + 1] <= byte_pos) row++;
+
+    *out_row = row; 
+
+    // The column is found by subtracting the grapheme offset of the start of the row
+    *out_col = edit->cursor_posn - inline_findgraphemeindex(edit, edit->lines[row]);
+}
+
+/** Render a single line of text 
+ * @param[in] - edit        - the editor
+ * @param[in] - prompt      - prompt for this line
+ * @param[in] - byte_start  - byte offset for the start of the line
+ * @param[in] - byte_end    - byte offset for the end of the line
+ * @param[in] - logical_cursor_col - column the cursor should be displayed in logical coordinates, or -1 if not on this line
+ * @param[in] - is_last     - whether this is the last line 
+ * @param[out] - rendered_cursor_col - if logical_cursor_col indicates the cursor is on this line, 
+ *                                     set to column the cursor should be rendered on, incuding clipping 
+ *                                     and prompt width; otherwise not changed. */
 static void inline_renderline(inline_editor *edit, const char *prompt, size_t byte_start, size_t byte_end, 
-                               int cursor_col, bool is_last) {
+                               int logical_cursor_col, bool is_last, int *rendered_cursor_col) {
     write(STDOUT_FILENO, "\r", 1);        // Move cursor to start of line
 
     write(STDOUT_FILENO, prompt, (unsigned int) strlen(prompt)); // Write prompt
@@ -1036,12 +1137,21 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     // Apply horizontal clipping
     inline_clipgraphemerange(edit, prompt_width, &g_start, &g_end);
 
+    // Determine actual rendered cursor column
+    if (logical_cursor_col >= 0) {
+        // cursor is on this line
+        int clipped_col = logical_cursor_col - g_start;
+        if (clipped_col >= 0 && clipped_col <= (g_end - g_start)) {
+            *rendered_cursor_col = prompt_width + clipped_col;
+        }
+    }
+
     int current_color = -1;
     bool selection_on = false; // Track the terminal inverse video state
 
     // Render syntax-colored, clipped graphemes
     int g = g_start;
-    size_t off = (g_start < edit->grapheme_count ? edit->graphemes[g_start] : edit->buffer_len);
+    size_t off = edit->graphemes[g_start];
 
     // Render syntax-colored, clipped graphemes
     while (g < g_end && off < byte_end) {
@@ -1085,11 +1195,11 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     if (selection_on || current_color != -1) inline_emit(TERM_RESETCOLOR);
 
     // Ghosted suggestion suffix (only if at right edge on last line)
-    if (is_last && g_end == edit->grapheme_count) {
+    if (is_last && g_end == edit->grapheme_count && logical_cursor_col >= 0) {
         const char *suffix = inline_currentsuggestion(edit);
         edit->suggestion_shown=false; 
         if (suffix && *suffix) {
-            int remaining_cols = edit->viewport.screen_cols - cursor_col;
+            int remaining_cols = edit->viewport.screen_cols - *rendered_cursor_col;
 
             // Width of suggestion
             int ghost_width = 0;
@@ -1107,128 +1217,36 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     inline_emit(TERM_CLEAR); // Clear to end of line
 }
 
-/** Redraw the buffer */
-static void inline_redraw(inline_editor *edit) {
-    inline_emit(TERM_HIDECURSOR);         // Prevent flickering
-    write(STDOUT_FILENO, "\r", 1); // Move cursor to start of line
+/** Redraw the entire buffer in multiline mode */
+void inline_redraw(inline_editor *edit) {
+    inline_emit(TERM_HIDECURSOR); // Prevent flickering
 
-    int prompt_width = 0;
-    if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width = 0; // fallback on malformed UTF-8
+    int cursor_row, cursor_col; // Compute logical cursor column and row (pre-clipping)
+    inline_cursorposn(edit, &cursor_row, &cursor_col);
 
-    int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
-    if (cursor_col < 0) cursor_col = 0;
+    inline_movetoorigin(cursor_row); 
 
-    inline_renderline(edit, edit->prompt, 0, edit->buffer_len, cursor_col, true);
+    int rendered_cursor_col = -1;  // To be filled out by inline_renderline
 
-    // Move cursor to column `cursor_col`
-    char seq[32];
-    int n = snprintf(seq, sizeof(seq), "\r\x1b[%dC", cursor_col + prompt_width);
-    write(STDOUT_FILENO, seq, n);
+    for (int i = 0; i < edit->line_count; i++) {
+        size_t byte_start = edit->lines[i]; // Render lines
+        size_t byte_end   = edit->lines[i+1];
+        bool is_last = (i == edit->line_count - 1);
+
+        inline_renderline(edit, (i==0 ? edit->prompt : edit->continuation_prompt), // prompt
+                          byte_start, byte_end, 
+                          (cursor_row == i ? cursor_col : -1), // cursor column if on this line
+                          is_last, // whether we're on the last line or not
+                          &rendered_cursor_col ); 
+        if (!is_last) write(STDOUT_FILENO, "\n\r", 1); // Move to start of line       
+    }
+
+    write(STDOUT_FILENO, "\r", 1); // Move to start of line
+
+    inline_moveby(rendered_cursor_col, cursor_row - edit->line_count + 1);
     inline_emit(TERM_SHOWCURSOR);
 }
-
-/** Redraw the line */
-static void xinline_redraw(inline_editor *edit) {
-    inline_emit(TERM_HIDECURSOR);         // Prevent flickering
-    write(STDOUT_FILENO, "\r", 1);        // Move cursor to start of line
-
-    size_t prompt_len = strlen(edit->prompt); // Write prompt
-    write(STDOUT_FILENO, edit->prompt, (unsigned int)prompt_len);
-
-    // Compute selection bounds, if active
-    int sel_l = INLINE_INVALID, sel_r = INLINE_INVALID;
-    if (edit->selection_posn != INLINE_INVALID) {
-        sel_l = imin(edit->selection_posn, edit->cursor_posn);
-        sel_r = imax(edit->selection_posn, edit->cursor_posn);
-    }
-
-    // Determine visible grapheme range
-    int g_start, g_end;
-    inline_visiblegraphemerange(edit, &g_start, &g_end);
-
-    int current_color = -1;
-    bool selection_on = false; // Track the terminal inverse video state
-
-    // Render syntax-colored, clipped graphemes
-    int g = g_start;
-    size_t off = (g_start < edit->grapheme_count ? edit->graphemes[g_start] : edit->buffer_len);
-
-    while (g < g_end && off < edit->buffer_len) {
-        // Compute color span from current point
-        inline_colorspan_t span = { .byte_start = off, .byte_end = off + 1, .color = 0 };
-        if (edit->syntax_fn) edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
-        int span_color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
-
-        // Change color only if needed
-        if (span_color != current_color) {
-            if (current_color != -1) {
-                inline_emit(TERM_RESETCOLOR);
-                selection_on = false;
-            }
-            if (span_color >= 0) inline_emitcolor(span_color);
-            current_color = span_color;
-        }
-
-        // Print graphemes until we reach span.byte_end (clipped)
-        for (; g < g_end; g++) {
-            size_t gs, ge;
-            inline_graphemerange(edit, g, &gs, &ge);
-            if (gs >= span.byte_end) break;
-
-            bool in_selection = (g >= sel_l && g < sel_r); // Are we in a selection?
-            if (in_selection != selection_on) {            // Does terminal state match?
-                if (in_selection) inline_emit(TERM_INVERSEVIDEO); // Start reverse video
-                else {
-                    inline_emit(TERM_RESETCOLOR);
-                    if (current_color >= 0) inline_emitcolor(current_color); // Reapply syntax color
-                }
-                selection_on = in_selection;
-            }
-
-            write(STDOUT_FILENO, edit->buffer + gs, (unsigned int)(ge - gs));
-        }
-
-        off = span.byte_end;
-    }
-
-    if (selection_on || current_color != -1) inline_emit(TERM_RESETCOLOR);
-
-    // Locate cursor 
-    int cursor_col = inline_cursorcolumn(edit) - edit->viewport.first_visible_col;
-
-    // Ghosted suggestion suffix (only if at right edge)
-    const char *suffix = inline_currentsuggestion(edit);
-    edit->suggestion_shown=false; 
-    if (suffix && *suffix && g_end == edit->grapheme_count) {
-        int remaining_cols = edit->viewport.screen_cols - cursor_col;
-
-        // Width of suggestion
-        int ghost_width = 0;
-        if (!inline_stringwidth(edit, suffix, &ghost_width)) ghost_width = 0; 
-
-        if (ghost_width <= remaining_cols) {
-            edit->suggestion_shown=true;
-            inline_emit(TERM_FAINT);                      // faint
-            write(STDOUT_FILENO, suffix, (unsigned int) strlen(suffix)); // ghost text
-            inline_emit(TERM_RESETCOLOR);
-        }
-    }
-
-    inline_emit(TERM_CLEAR); // Clear to end of line
-
-    // Calculate correct cursor position
-    int prompt_width;
-    if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width=0;
-    size_t colpos = prompt_width + cursor_col;
-
-    // Move cursor to column `colpos`
-    char seq[32];
-    int n = snprintf(seq, sizeof(seq), "\r\x1b[%zuC", colpos);
-    write(STDOUT_FILENO, seq, n);
-
-    inline_emit(TERM_SHOWCURSOR);
-}
-
+  
 /** API function to print a syntax colored string */
 void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
     if (!edit || !string) return;
@@ -1331,7 +1349,6 @@ static const escmap_t esc_table[] = {
     { "[1;2D", KEY_SHIFT_LEFT },
 };
 
-#define INLINE_ESCAPECODE_MAXLENGTH 16
 static void inline_decode_escape(keypress_t *out) {
     unsigned char seq[INLINE_ESCAPECODE_MAXLENGTH+1];
     int i = 0;
@@ -1453,6 +1470,7 @@ static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes)
     int old_count = edit->grapheme_count; // Save grapheme count
     
     inline_recomputegraphemes(edit); 
+    inline_recomputelines(edit);
 
     // Move cursor forward by number of graphemes
     int inserted_count = edit->grapheme_count - old_count; 
@@ -1712,13 +1730,6 @@ static void inline_supported(inline_editor *edit) {
     inline_updateterminalwidth(edit);
     inline_initviewport(edit);
     inline_redraw(edit);
-
-    /*rawinput_t raw;
-    for (;;) {
-        inline_readraw(&raw);
-        printf("Key: %3u (0x%02X)\n", raw, (unsigned)raw);
-        if (raw == 'q') break;
-    }*/
 
     keypress_t key; 
     while (inline_readkeypress(edit, &key)) {

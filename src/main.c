@@ -88,10 +88,10 @@ static bool syntaxhighlighterfn(const char *utf8, void *ref, size_t offset, inli
 }
 
 static int palette[] = {
-    -1,  // 0 = default
-     5,  // 1 = purple (keywords)
-     4,  // 2 = dark blue (strings)
-     6   // 3 = cyan (numbers)
+    -1,               // 0 = default
+     INLINE_MAGENTA,  // 1 = keywords
+     INLINE_BLUE,     // 2 = strings
+     INLINE_CYAN      // 3 = numbers
 };
 
 /** Multiline function */

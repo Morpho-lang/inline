@@ -6,14 +6,12 @@ This document describes the complete inline API; the 11 API functions are also d
 
 In this document, “grapheme” refers to a Unicode extended grapheme cluster as defined by Unicode Standard Annex #29.
 
-
-
 ## Minimal line editing
 
 A minimal line editor is set up and used in a few lines of C: 
 
     inline_editor *edit = inline_new(">"); // Create an editor
-    char *line = inline_readline(edit); // Obtain a line of text
+    char *line = inline_readline(edit); // Read a line of text
     free(line); 
     inline_free(edit); // Free the editor and attached data
 
@@ -38,7 +36,7 @@ A challenge for working with text is that the user's perception of what constitu
 
 Emoji can have very complex representations. For example, emoji can have modifiable skin tones like 👍🏽, which is represented by the sequence F0 9F 91 8D (👍 'thumbs up') followed by F0 9F 8F BD (medium skin tone modifier). The emoji 👨‍👩‍👧‍👦, depicting a possible family, is actually seven codepoints and 25 bytes. 
 
-In each of these cases, the user would expect a user interface to treat these characters as a single coherent unit, which is called a "grapheme". They may well be unaware of the complexities of text representation, and could have obtained it from a number of sources such as selecting it from a menu or copying and pasted from the web.
+In each of these cases, the user would expect a user interface to treat these characters as a single coherent unit, which is called a "grapheme". They may well be unaware of the complexities of text representation, and could have obtained a grapheme from a number of sources such as selecting it from a menu or copying or pasted from the web.
 
 Any functional line editor must be able to separate the user's input into its constituent graphemes, and use these as the fundamental unit of navigation. 
 
@@ -46,7 +44,7 @@ Any functional line editor must be able to separate the user's input into its co
 
 Recognizing a grapheme is a nontrivial task. The Unicode space is large, and special codepoints that participate in grapheme construction interact in multiple ways. Libraries like `libunistring` or `libgrapheme` provide functions that perform the splitting correctly according to the Unicode standard, but are somewhat heavyweight and unnecessary for applications where exotic sequences are not expected. 
 
-Inline therefore take the following approach: a basic grapheme splitter is provided by default that is capable of recognizing many common sequences including those shown above [accents, skin tone modifiers, joined codepoints]. This should be good enough for many use cases. 
+Inline therefore takes the following approach: a basic grapheme splitter is provided by default that is capable of recognizing many common sequences including those shown above [accents, skin tone modifiers, joined codepoints]. This should be good enough for many use cases. 
 
 Where the default splitter is inadequate, it is very likely that the host application will already include a suitable external library anyway. Inline therefore allows you to supply your own splitter as a callback by calling a configuration function:
 
@@ -131,7 +129,7 @@ The callback has the following signature:
 
     typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset, inline_colorspan_t *out);
 
-When inline wishes to understand how to highlight the buffer, it repeatedly calls the callback to determine the next span to color. The complete contents of the input buffer are passed in `utf8`. The callback should start scanning the buffer from byte offset `offset` and determine the next span to color. When it has done so, it fills out the structure `inline_colorspan_t` is a structure the callback fills out: 
+When inline wishes to understand how to highlight the buffer, it repeatedly calls the callback to determine the next span to color. The complete contents of the input buffer are passed in `utf8`. The callback should start scanning the buffer from byte offset `offset` and determine the next span to color. Spans must not overlap and should be monotonically increasing. When the callback has done so, it fills out the structure `inline_colorspan_t`:
 
     typedef struct {
         size_t byte_start; /* inclusive start of color span */
@@ -186,7 +184,7 @@ The callback should be fast and side-effect free; it may be called on every Ente
         return (nb>0); // Is there an unmatched left parenthesis?
     }
 
-## Termimal helper functions
+## Terminal helper functions
 
 Inline also provides a small number of utility functions to assist programmers implementing terminal-based applications. 
 
