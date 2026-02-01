@@ -944,10 +944,9 @@ static void inline_cursorposn(inline_editor *edit, int *out_row, int *out_col) {
     int row = 0; // Find the row containing the cursor
     while (row + 1 < edit->line_count && edit->lines[row + 1] <= byte_pos) row++;
 
-    *out_row = row; 
-
+    if (out_row) *out_row = row; 
     // The column is found by subtracting the grapheme offset of the start of the row
-    *out_col = edit->cursor_posn - inline_findgraphemeindex(edit, edit->lines[row]);
+    if (out_col) *out_col = edit->cursor_posn - inline_findgraphemeindex(edit, edit->lines[row]);
 }
 
 /** Check the cursor is visible */
@@ -1552,13 +1551,23 @@ static void inline_clear(inline_editor *edit) {
 
 /** Navigation keys */
 static void inline_home(inline_editor *edit) {
-    if (edit->cursor_posn != 0) 
-        inline_setcursorposn(edit, 0); // Reset cursor
+    int row;
+    inline_cursorposn(edit, &row, NULL);
+
+    size_t byte_start = edit->lines[row]; // Find the start of this line 
+    int g_start = inline_findgraphemeindex(edit, byte_start); // convert to grapheme index
+
+    if (edit->cursor_posn != g_start) inline_setcursorposn(edit, g_start); // Set logical cursor
 }
 
 static void inline_end(inline_editor *edit) {
-    if (edit->cursor_posn != edit->grapheme_count) 
-        inline_setcursorposn(edit, edit->grapheme_count); // Reset cursor
+    int row;
+    inline_cursorposn(edit, &row, NULL);
+
+    size_t byte_start = edit->lines[row+1]; // Find the start of this line 
+    int g_start = inline_findgraphemeindex(edit, byte_start); // convert to grapheme index
+
+    if (edit->cursor_posn != g_start) inline_setcursorposn(edit, g_start); // Set logical cursor
 }
 
 static void inline_left(inline_editor *edit) {
@@ -1640,6 +1649,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             if (!edit->multiline_fn ||
                 !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
             if (!inline_insert(edit, "\n", 1)) return false;
+            if (inline_atend(edit)) inline_emit("\n");
             generatesuggestions = false;  // newline shouldn't trigger suggestion
             break;
         case KEY_LEFT:   inline_left(edit); break;
