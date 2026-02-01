@@ -614,6 +614,36 @@ static int inline_findgraphemeindex(inline_editor *edit, size_t byte_off) {
 }
 
 /* ----------------------------------------
+ * Line buffer
+ * ---------------------------------------- */
+
+/** Compute line locations */
+static void inline_recomputelines(inline_editor *edit) {
+    int count = 0;
+
+    for (int g = 0; g < edit->grapheme_count; g++) // Count newline graphemes
+        if (edit->buffer[edit->graphemes[g]] == '\n') count++;
+
+    size_t needed = sizeof(size_t) * (count + 2); // Need count+2 entries: first line + each newline + sentinel
+    if (needed > edit->line_size) {
+        size_t *new = realloc(edit->lines, needed);
+        if (!new) return;
+        edit->lines = new;
+        edit->line_size = needed;
+    }
+
+    int i = 0;
+    edit->lines[i++] = 0; // First line always starts at 0
+
+    for (int g = 0; g < edit->grapheme_count; g++)  // Subsequent lines start after each newline
+        if (edit->buffer[edit->graphemes[g]] == '\n')
+            edit->lines[i++] = edit->graphemes[g] + 1;
+
+    edit->lines[i] = edit->buffer_len; // Sentinel
+    edit->line_count = i;
+}
+
+/* ----------------------------------------
  * Grapheme display width
  * ---------------------------------------- */
 
@@ -669,6 +699,18 @@ static bool inline_stringwidth(inline_editor *edit, const char *str, int *width)
         p += glen;
     }
     return true;
+}
+
+/** Compute terminal width of grapheme range [g_start, g_end) */
+static inline int inline_graphemerangewidth(inline_editor *edit, int g_start, int g_end) {
+    inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth);
+    int width = 0;
+    for (int g = g_start; g < g_end; g++) {
+        size_t s, e;
+        inline_graphemerange(edit, g, &s, &e);
+        width += width_fn(edit->buffer + s, e - s);
+    }
+    return width;
 }
 
 /* ----------------------------------------
@@ -895,55 +937,37 @@ static void inline_initviewport(inline_editor *edit) {
     edit->viewport.screen_cols = edit->ncols - prompt_width; // Terminal width already known.
 }
 
-/** Calculates the cursor display column by walking graphemes and calculating their display width */
-static int inline_cursorcolumn(inline_editor *edit) {
-    inline_widthfn width_fn = edit->width_fn ? edit->width_fn : inline_graphemewidth;
-    int col = 0;
-    for (int i = 0; i < edit->cursor_posn; i++) {
-        size_t start, end;
-        inline_graphemerange(edit, i, &start, &end);
-        col += width_fn(edit->buffer + start, end - start);
-    }
-    return col;
+/** Compute logical cursor position in rows and columns */
+static void inline_cursorposn(inline_editor *edit, int *out_row, int *out_col) {
+    size_t byte_pos = edit->graphemes[edit->cursor_posn];  // byte offset of cursor
+
+    int row = 0; // Find the row containing the cursor
+    while (row + 1 < edit->line_count && edit->lines[row + 1] <= byte_pos) row++;
+
+    *out_row = row; 
+
+    // The column is found by subtracting the grapheme offset of the start of the row
+    *out_col = edit->cursor_posn - inline_findgraphemeindex(edit, edit->lines[row]);
 }
 
 /** Check the cursor is visible */
 static void inline_ensurecursorvisible(inline_editor *edit) {
-    int cur_col = inline_cursorcolumn(edit); // logical column of cursor
-    if (cur_col < edit->viewport.first_visible_col) { 
-        // If cursor is left of the viewport, scroll left
-        edit->viewport.first_visible_col = cur_col;
-    } else if (cur_col >= edit->viewport.first_visible_col + edit->viewport.screen_cols) {
-        // If cursor is right of the viewport, scroll right
-        edit->viewport.first_visible_col = cur_col - edit->viewport.screen_cols + 1;
+    int cursor_row, cursor_col;
+    inline_cursorposn(edit, &cursor_row, &cursor_col); // Logical indices
+
+    int line_start_g = inline_findgraphemeindex(edit, edit->lines[cursor_row]); 
+    int cursor_g = line_start_g + cursor_col; // Grapheme index relative to start of buffer
+
+    int cursor_term_col = inline_graphemerangewidth(edit, line_start_g, cursor_g); // terminal width up to cursor
+
+    int first = edit->viewport.first_visible_col;
+    int last  = first + edit->viewport.screen_cols - 1;
+
+    if (cursor_term_col < first) { // Cursor is left of viewport
+        edit->viewport.first_visible_col = cursor_term_col;
+    } else if (cursor_term_col > last) { // Cursor is right of viewport
+        edit->viewport.first_visible_col = cursor_term_col - edit->viewport.screen_cols + 1;
     }
-}
-
-/** Compute line locations */
-static void inline_recomputelines(inline_editor *edit) {
-    int count = 0;
-
-    for (int g = 0; g < edit->grapheme_count; g++) // Count newline graphemes
-        if (edit->buffer[edit->graphemes[g]] == '\n') count++;
-
-    size_t needed = sizeof(size_t) * (count + 2); // Need count+2 entries: first line + each newline + sentinel
-    if (needed > edit->line_size) {
-        size_t *new = realloc(edit->lines, needed);
-        if (!new) return;
-        edit->lines = new;
-        edit->line_size = needed;
-    }
-
-    int i = 0;
-    edit->lines[i++] = 0; // First line always starts at 0
-
-    for (int g = 0; g < edit->grapheme_count; g++)  // Subsequent lines start after each newline
-        if (edit->buffer[edit->graphemes[g]] == '\n')
-            edit->lines[i++] = edit->graphemes[g] + 1;
-
-    edit->lines[i] = edit->buffer_len; // Sentinel
-    edit->line_count = i;
-
 }
 
 /* **********************************************************************
@@ -1092,19 +1116,6 @@ static inline void inline_moveby(int dx, int dy) {
     }
 }
 
-/** Compute logical cursor position in rows and columns */
-static void inline_cursorposn(inline_editor *edit, int *out_row, int *out_col) {
-    size_t byte_pos = edit->graphemes[edit->cursor_posn];  // byte offset of cursor
-
-    int row = 0; // Find the row containing the cursor
-    while (row + 1 < edit->line_count && edit->lines[row + 1] <= byte_pos) row++;
-
-    *out_row = row; 
-
-    // The column is found by subtracting the grapheme offset of the start of the row
-    *out_col = edit->cursor_posn - inline_findgraphemeindex(edit, edit->lines[row]);
-}
-
 /** Render a single line of text 
  * @param[in] - edit        - the editor
  * @param[in] - prompt      - prompt for this line
@@ -1113,8 +1124,8 @@ static void inline_cursorposn(inline_editor *edit, int *out_row, int *out_col) {
  * @param[in] - logical_cursor_col - column the cursor should be displayed in logical coordinates, or -1 if not on this line
  * @param[in] - is_last     - whether this is the last line 
  * @param[out] - rendered_cursor_col - if logical_cursor_col indicates the cursor is on this line, 
- *                                     set to column the cursor should be rendered on, incuding clipping 
- *                                     and prompt width; otherwise not changed. */
+ *                                     set to logical column the cursor should be rendered on, incuding clipping 
+ *                                     and prompt widt, or -1 if outside clipping window; otherwise not changed. */
 static void inline_renderline(inline_editor *edit, const char *prompt, size_t byte_start, size_t byte_end, 
                                int logical_cursor_col, bool is_last, int *rendered_cursor_col) {
     write(STDOUT_FILENO, "\r", 1);        // Move cursor to start of line
@@ -1130,20 +1141,19 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
         sel_r = imax(edit->selection_posn, edit->cursor_posn);
     }
 
-    // Compute grapheme range for this line
-    int g_start = inline_findgraphemeindex(edit, byte_start);
-    int g_end   = inline_findgraphemeindex(edit, byte_end);
+    // Compute grapheme range for this line; remember the true start of the line
+    int line_start = inline_findgraphemeindex(edit, byte_start);
+    int g_start = line_start, g_end = inline_findgraphemeindex(edit, byte_end);
 
     // Apply horizontal clipping
     inline_clipgraphemerange(edit, prompt_width, &g_start, &g_end);
 
     // Determine actual rendered cursor column
-    if (logical_cursor_col >= 0) {
-        // cursor is on this line
-        int clipped_col = logical_cursor_col - g_start;
-        if (clipped_col >= 0 && clipped_col <= (g_end - g_start)) {
-            *rendered_cursor_col = prompt_width + clipped_col;
-        }
+    if (logical_cursor_col >= 0) { // Cursor is on this line
+        int clipped_col = logical_cursor_col - (g_start-line_start);
+        if (clipped_col >= 0 && clipped_col < (g_end - g_start)) {
+            *rendered_cursor_col = prompt_width + inline_graphemerangewidth(edit, g_start, g_start + clipped_col);
+        } else *rendered_cursor_col = -1; 
     }
 
     int current_color = -1;
@@ -1237,8 +1247,7 @@ void inline_redraw(inline_editor *edit) {
                           byte_start, byte_end, 
                           (cursor_row == i ? cursor_col : -1), // cursor column if on this line
                           is_last, // whether we're on the last line or not
-                          &rendered_cursor_col ); 
-        if (!is_last) write(STDOUT_FILENO, "\n\r", 1); // Move to start of line       
+                          &rendered_cursor_col );      
     }
 
     write(STDOUT_FILENO, "\r", 1); // Move to start of line
@@ -1626,6 +1635,7 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
 static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     bool generatesuggestions=true, clearselection=true, endbrowsing=true;
     switch (key->type) {
+        case KEY_END:
         case KEY_RETURN: 
             if (!edit->multiline_fn ||
                 !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
@@ -1662,7 +1672,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             endbrowsing=false;
             break;
         case KEY_HOME:   inline_home(edit);        break;
-        case KEY_END:    inline_end(edit);         break;
+        //case KEY_END:    inline_end(edit);         break;
         case KEY_DELETE: inline_delete(edit);      break;
         case KEY_TAB:
             if (inline_havesuggestions(edit)) {
