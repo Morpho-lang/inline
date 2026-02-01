@@ -1151,7 +1151,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     // Determine actual rendered cursor column
     if (logical_cursor_col >= 0) { // Cursor is on this line
         int clipped_col = logical_cursor_col - (g_start-line_start);
-        if (clipped_col >= 0 && clipped_col < (g_end - g_start)) {
+        if (clipped_col >= 0 && clipped_col <= (g_end - g_start)) {
             *rendered_cursor_col = prompt_width + inline_graphemerangewidth(edit, g_start, g_start + clipped_col);
         } else *rendered_cursor_col = -1; 
     }
