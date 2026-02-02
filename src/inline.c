@@ -1451,13 +1451,19 @@ static bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
 /** Update the cursor position */
 static inline void inline_setcursorposn(inline_editor *edit, int new_posn) {
     if (new_posn < 0) new_posn = 0;
-    if (new_posn > edit->grapheme_count) new_posn = edit->grapheme_count; // Clamp to [0,grapheme_count]
+    if (new_posn > edit->grapheme_count) new_posn = edit->grapheme_count;
+    if (edit->cursor_posn == new_posn) return; 
+    edit->refresh = true;
 
-    if (edit->cursor_posn != new_posn) {
-        edit->cursor_posn = new_posn;
-        inline_ensurecursorvisible(edit);
-        edit->refresh = true;
-    }
+    int old_row, new_row;
+    inline_cursorposn(edit, &old_row, NULL);
+
+    edit->cursor_posn = new_posn;
+    inline_ensurecursorvisible(edit);
+    inline_cursorposn(edit, &new_row, NULL);
+
+    int delta = new_row - old_row; // Move when the logical cursor crosses a line boundary
+    if (delta != 0) inline_moveby(0, delta);
 }
 
 /** Insert text into the buffer */
@@ -1550,24 +1556,18 @@ static void inline_clear(inline_editor *edit) {
 }
 
 /** Navigation keys */
-static void inline_home(inline_editor *edit) {
+static void inline_navigatetolineboundary(inline_editor *edit, bool end) {
     int row;
     inline_cursorposn(edit, &row, NULL);
+    inline_setcursorposn(edit, inline_findgraphemeindex(edit, edit->lines[row + end]));
+}
 
-    size_t byte_start = edit->lines[row]; // Find the start of this line 
-    int g_start = inline_findgraphemeindex(edit, byte_start); // convert to grapheme index
-
-    if (edit->cursor_posn != g_start) inline_setcursorposn(edit, g_start); // Set logical cursor
+static void inline_home(inline_editor *edit) {
+    inline_navigatetolineboundary(edit, false);
 }
 
 static void inline_end(inline_editor *edit) {
-    int row;
-    inline_cursorposn(edit, &row, NULL);
-
-    size_t byte_start = edit->lines[row+1]; // Find the start of this line 
-    int g_start = inline_findgraphemeindex(edit, byte_start); // convert to grapheme index
-
-    if (edit->cursor_posn != g_start) inline_setcursorposn(edit, g_start); // Set logical cursor
+    inline_navigatetolineboundary(edit, true);
 }
 
 static void inline_left(inline_editor *edit) {
@@ -1649,7 +1649,6 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             if (!edit->multiline_fn ||
                 !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
             if (!inline_insert(edit, "\n", 1)) return false;
-            if (inline_atend(edit)) inline_emit("\n");
             generatesuggestions = false;  // newline shouldn't trigger suggestion
             break;
         case KEY_LEFT:   inline_left(edit); break;
