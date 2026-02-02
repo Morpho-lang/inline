@@ -1570,6 +1570,14 @@ static void inline_end(inline_editor *edit) {
     inline_navigatetolineboundary(edit, true);
 }
 
+static void inline_pageup(inline_editor *edit) {
+    inline_setcursorposn(edit, 0);
+}
+
+static void inline_pagedown(inline_editor *edit) {
+    inline_setcursorposn(edit, edit->grapheme_count);
+}
+
 static void inline_left(inline_editor *edit) {
     if (edit->cursor_posn > 0) 
         inline_setcursorposn(edit, edit->cursor_posn - 1);
@@ -1680,9 +1688,11 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             inline_setcursorposn(edit, edit->grapheme_count);
             endbrowsing=false;
             break;
-        case KEY_HOME:   inline_home(edit);        break;
+        case KEY_HOME:     inline_home(edit);        break;
         //case KEY_END:    inline_end(edit);         break;
-        case KEY_DELETE: inline_delete(edit);      break;
+        case KEY_PAGE_UP:   inline_pageup(edit);     break; 
+        case KEY_PAGE_DOWN: inline_pagedown(edit);   break;
+        case KEY_DELETE:    inline_delete(edit);     break;
         case KEY_TAB:
             if (inline_havesuggestions(edit)) {
                 inline_advancesuggestions(edit, 1);
