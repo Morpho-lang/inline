@@ -56,7 +56,7 @@ typedef struct {
     int first_visible_line;  // Vertical scroll offset
     int first_visible_col;   // Horizontal scroll offset
     int screen_rows;         // Viewport height
-    int screen_cols;         // Viewport width
+    int screen_cols;         // Viewport width (excludes prompt, which is not part of the viewport)
 } inline_viewport;
 
 /** The editor data structure */
@@ -952,20 +952,22 @@ static void inline_cursorposn(inline_editor *edit, int *out_row, int *out_col) {
 /** Check the cursor is visible */
 static void inline_ensurecursorvisible(inline_editor *edit) {
     int cursor_row, cursor_col;
-    inline_cursorposn(edit, &cursor_row, &cursor_col); // Logical indices
+    inline_cursorposn(edit, &cursor_row, &cursor_col);
 
-    int line_start_g = inline_findgraphemeindex(edit, edit->lines[cursor_row]); 
-    int cursor_g = line_start_g + cursor_col; // Grapheme index relative to start of buffer
+    int line_start_g = inline_findgraphemeindex(edit, edit->lines[cursor_row]);
+    int cursor_g = line_start_g + cursor_col;
 
-    int cursor_term_col = inline_graphemerangewidth(edit, line_start_g, cursor_g); // terminal width up to cursor
+    int cursor_term_col = inline_graphemerangewidth(edit, line_start_g, cursor_g);
 
     int first = edit->viewport.first_visible_col;
-    int last  = first + edit->viewport.screen_cols - 1;
+    int end   = first + edit->viewport.screen_cols; // exclusive
 
-    if (cursor_term_col < first) { // Cursor is left of viewport
+    if (cursor_term_col < first) {
         edit->viewport.first_visible_col = cursor_term_col;
-    } else if (cursor_term_col > last) { // Cursor is right of viewport
-        edit->viewport.first_visible_col = cursor_term_col - edit->viewport.screen_cols + 1;
+
+    } else if (cursor_term_col >= end) {
+        edit->viewport.first_visible_col =
+            cursor_term_col - edit->viewport.screen_cols;
     }
 }
 
@@ -1043,13 +1045,13 @@ static inline void inline_visiblegraphemerange(inline_editor *edit, int *g_start
 }
 
 /** Clip grapheme range [*g_start, *g_end) horizontally based on viewport */
-static inline void inline_clipgraphemerange(inline_editor *edit, int prompt_width, int *g_start, int *g_end) {
-    inline_widthfn width_fn = edit->width_fn ? edit->width_fn : inline_graphemewidth;
+static inline void inline_clipgraphemerange(inline_editor *edit, int line_start, int *g_start, int *g_end) {
+    inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth);
 
     int start_col = edit->viewport.first_visible_col;
     int end_col   = start_col + edit->viewport.screen_cols;
 
-    int col = prompt_width;   // Line begins after prompt
+    int col = inline_graphemerangewidth(edit, line_start, *g_start);
     int start = -1;
     int end   = *g_start;
 
@@ -1058,12 +1060,12 @@ static inline void inline_clipgraphemerange(inline_editor *edit, int prompt_widt
         inline_graphemerange(edit, i, &s, &e);
         int w = width_fn(edit->buffer + s, e - s);
 
-        if ((col + w > start_col) && (col < end_col)) {
-            if (start < 0) start = i;        // first visible grapheme
-            end = i + 1;                     // extend visible range
+        if ((col >= start_col) && (col < end_col)) {
+            if (start < 0) start = i; // First visible grapheme
+            end = i + 1; // extend visible range
         }
 
-        if (col >= end_col) break;
+        if (col + w > end_col) break;
         col += w;
     }
 
@@ -1133,6 +1135,9 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     int prompt_width = 0; // Calculate its display width
     if (!inline_stringwidth(edit, prompt, &prompt_width)) prompt_width = 0; 
 
+    int rendered_width = prompt_width; // Track rendered width
+    int rendered_cursor_posn = -1; 
+
     // Compute selection bounds, if active
     int sel_l = INLINE_INVALID, sel_r = INLINE_INVALID;
     if (edit->selection_posn != INLINE_INVALID) {
@@ -1145,15 +1150,15 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     int g_start = line_start, g_end = inline_findgraphemeindex(edit, byte_end);
 
     // Apply horizontal clipping
-    inline_clipgraphemerange(edit, prompt_width, &g_start, &g_end);
+    inline_clipgraphemerange(edit, line_start, &g_start, &g_end);
 
     // Determine actual rendered cursor column
-    if (logical_cursor_col >= 0) { // Cursor is on this line
+    /*if (logical_cursor_col >= 0) { // Cursor is on this line
         int clipped_col = logical_cursor_col - (g_start-line_start);
         if (clipped_col >= 0 && clipped_col <= (g_end - g_start)) {
             *rendered_cursor_col = prompt_width + inline_graphemerangewidth(edit, g_start, g_start + clipped_col);
         } else *rendered_cursor_col = -1; 
-    }
+    }*/
 
     int current_color = -1;
     bool selection_on = false; // Track the terminal inverse video state
@@ -1183,6 +1188,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
         for (; g < g_end; g++) {
             size_t gs, ge;
             inline_graphemerange(edit, g, &gs, &ge);
+
             if (gs >= span.byte_end) break;
 
             bool in_selection = (g >= sel_l && g < sel_r); // Are we in a selection?
@@ -1196,6 +1202,11 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
             }
 
             write(STDOUT_FILENO, edit->buffer + gs, (unsigned int) (ge - gs));
+
+            if (logical_cursor_col >= 0 &&  // Check if this grapheme was where the cursor is
+                line_start + logical_cursor_col == g) rendered_cursor_posn = rendered_width;
+    
+            rendered_width += inline_graphemewidth(edit->buffer + gs, ge - gs);
         }
 
         off = span.byte_end;
@@ -1223,7 +1234,12 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
         }
     }
 
-    inline_emit(TERM_CLEAR); // Clear to end of line
+    if (logical_cursor_col >= 0) { // Update cursor position if on this line
+        if (rendered_cursor_posn >= 0) *rendered_cursor_col = rendered_cursor_posn;
+        else *rendered_cursor_col = rendered_width; // cursor at end
+    }
+
+    if (rendered_width < edit->viewport.screen_cols) inline_emit(TERM_CLEAR); // Clear to end of line
 }
 
 /** Redraw the entire buffer in multiline mode */
@@ -1250,6 +1266,11 @@ void inline_redraw(inline_editor *edit) {
     }
 
     write(STDOUT_FILENO, "\r", 1); // Move to start of line
+
+    if (rendered_cursor_col == edit->viewport.screen_cols - 1) {
+        write(STDOUT_FILENO, " ", 1); // Print a space to clear pending wrap
+        rendered_cursor_col--; // Move cursor back one column
+    }
 
     inline_moveby(rendered_cursor_col, cursor_row - edit->line_count + 1);
     inline_emit(TERM_SHOWCURSOR);
