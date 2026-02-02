@@ -934,7 +934,7 @@ static void inline_initviewport(inline_editor *edit) {
     edit->viewport.screen_rows = 1; // Will adjust for multiline editing later
     int prompt_width; 
     if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width = 0; 
-    edit->viewport.screen_cols = edit->ncols - prompt_width; // Terminal width already known.
+    edit->viewport.screen_cols = edit->ncols - prompt_width - 1; // Reserve last col to avoid pending wrap state
 }
 
 /** Compute logical cursor position in rows and columns */
@@ -1219,7 +1219,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
         const char *suffix = inline_currentsuggestion(edit);
         edit->suggestion_shown=false; 
         if (suffix && *suffix) {
-            int remaining_cols = edit->viewport.screen_cols - *rendered_cursor_col;
+            int remaining_cols = edit->viewport.screen_cols - rendered_width;
 
             // Width of suggestion
             int ghost_width = 0;
@@ -1266,12 +1266,6 @@ void inline_redraw(inline_editor *edit) {
     }
 
     write(STDOUT_FILENO, "\r", 1); // Move to start of line
-
-    if (rendered_cursor_col == edit->viewport.screen_cols - 1) {
-        write(STDOUT_FILENO, " ", 1); // Print a space to clear pending wrap
-        rendered_cursor_col--; // Move cursor back one column
-    }
-
     inline_moveby(rendered_cursor_col, cursor_row - edit->line_count + 1);
     inline_emit(TERM_SHOWCURSOR);
 }
