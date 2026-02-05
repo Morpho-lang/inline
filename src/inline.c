@@ -1009,41 +1009,6 @@ static void inline_emitcolor(int color) {
     if (n > 0) write(STDOUT_FILENO, seq, n);
 }
 
-/** Compute visible grapheme range [g_start, g_end) */
-static inline void inline_visiblegraphemerange(inline_editor *edit, int *g_start, int *g_end) {
-    inline_widthfn width_fn = edit->width_fn ? edit->width_fn : inline_graphemewidth;
-
-    int start_col = edit->viewport.first_visible_col;
-    int end_col   = start_col + edit->viewport.screen_cols;
-
-    int col = 0;
-    int start = -1;   // < 0 means "not found yet"
-    int end   = 0;
-
-    for (int i = 0; i < edit->grapheme_count; i++) {
-        size_t s, e;
-        inline_graphemerange(edit, i, &s, &e);
-        int w = width_fn(edit->buffer + s, e - s);
-
-        if (start < 0) { // Haven't entered visible region yet
-            if (col + w > start_col) start = i;   // first visible grapheme
-        }
-
-        if (start >= 0) { // Inside visible region
-            if (col >= end_col) break;       // past right edge
-            end = i + 1;
-        }
-
-        col += w;
-    }
-
-    if (start < 0) start = edit->grapheme_count; // Clamp if line is empty or viewport is beyond end
-    if (end   < start) end = start;
-
-    *g_start = start;
-    *g_end   = end;
-}
-
 /** Clip grapheme range [*g_start, *g_end) horizontally based on viewport */
 static inline void inline_clipgraphemerange(inline_editor *edit, int line_start, int *g_start, int *g_end) {
     inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth);
@@ -1083,21 +1048,6 @@ static inline void inline_movetoorigin(int cursor_row) {
     if (cursor_row > 0) { // Move up cursor_row lines
         char seq[INLINE_ESCAPECODE_MAXLENGTH];
         int n = snprintf(seq, sizeof(seq), "\x1b[%dA", cursor_row);
-        write(STDOUT_FILENO, seq, n);
-    }
-}
-
-/** Move to a given (row,col) */
-static inline void inline_moveto(int row, int col) {
-    char seq[INLINE_ESCAPECODE_MAXLENGTH];
-
-    if (row > 0) { // Move down to target row
-        int n = snprintf(seq, sizeof(seq), "\x1b[%dB", row);
-        write(STDOUT_FILENO, seq, n);
-    }
-
-    if (col > 0) { // Move right to target column
-        int n = snprintf(seq, sizeof(seq), "\x1b[%dC", col);
         write(STDOUT_FILENO, seq, n);
     }
 }
@@ -1151,14 +1101,6 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
 
     // Apply horizontal clipping
     inline_clipgraphemerange(edit, line_start, &g_start, &g_end);
-
-    // Determine actual rendered cursor column
-    /*if (logical_cursor_col >= 0) { // Cursor is on this line
-        int clipped_col = logical_cursor_col - (g_start-line_start);
-        if (clipped_col >= 0 && clipped_col <= (g_end - g_start)) {
-            *rendered_cursor_col = prompt_width + inline_graphemerangewidth(edit, g_start, g_start + clipped_col);
-        } else *rendered_cursor_col = -1; 
-    }*/
 
     int current_color = -1;
     bool selection_on = false; // Track the terminal inverse video state
