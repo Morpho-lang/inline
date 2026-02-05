@@ -1111,7 +1111,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     // Render syntax-colored, clipped graphemes
     while (g < g_end && off < byte_end) {
         // Compute color span from current point
-        inline_colorspan_t span = { .byte_start = off, .byte_end = off + 1, .color = 0 };
+        inline_colorspan_t span = { .byte_end = off + 1, .color = 0 };
         if (edit->syntax_fn) edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
         int span_color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
 
@@ -1228,19 +1228,16 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
 
     size_t offset = 0;
     while (offset < len) { // 
-        inline_colorspan_t span;
+        inline_colorspan_t span = { .byte_end = offset, .color=-1};
 
         bool ok = edit->syntax_fn(string, edit->syntax_ref, offset, &span); // Obtain next span
-        if (!ok) { // No more spans, print the rest uncolored
+        if (!ok || span.byte_end <= offset) { // No more spans or broken callback; print the rest uncolored
             write(STDOUT_FILENO, string + offset, (unsigned int) (len - offset));
             return;
         }
 
-        // Print any uncolored text before the span
-        if (span.byte_start > offset) write(STDOUT_FILENO, string + offset, (unsigned int) (span.byte_start - offset));
-
         if (span.color<edit->palette_count) inline_emitcolor(edit->palette[span.color]);
-        write(STDOUT_FILENO, string + span.byte_start, (unsigned int) (span.byte_end - span.byte_start));
+        write(STDOUT_FILENO, string + offset, (unsigned int) (span.byte_end - offset));
         inline_emit(TERM_RESETFOREGROUND);
 
         offset = span.byte_end;

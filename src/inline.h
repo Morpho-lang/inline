@@ -52,7 +52,6 @@ typedef char *(*inline_completefn) (const char *utf8, void *ref, size_t *index);
 
 /** @brief A single colored span of text. */
 typedef struct {
-    size_t byte_start; /* inclusive start of color span */
     size_t byte_end; /* exclusive end of color span */
     int color;     /* Index into color palette */
 } inline_colorspan_t;

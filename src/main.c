@@ -37,7 +37,6 @@ char *completefn(const char *buffer, void *ref, size_t *index) {
 
 /** Set the contents of an inline_color_span_t structure */
 static inline void inline_set_colorspan(inline_colorspan_t *s, size_t start, size_t end, int color) {
-    s->byte_start = start;
     s->byte_end   = end;
     s->color      = color;
 }
