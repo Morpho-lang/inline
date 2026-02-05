@@ -1111,8 +1111,11 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     // Render syntax-colored, clipped graphemes
     while (g < g_end && off < byte_end) {
         // Compute color span from current point
-        inline_colorspan_t span = { .byte_end = off + 1, .color = 0 };
-        if (edit->syntax_fn) edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
+        inline_colorspan_t span = { .byte_end = off + 1, .color = -1 };
+        bool ok=false;
+        if (edit->syntax_fn) ok=edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
+        if (!ok || span.byte_end <= off) span.byte_end = byte_end;   // treat rest of line as uncolored
+
         int span_color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
 
         // Change color only if needed
