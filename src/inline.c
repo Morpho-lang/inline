@@ -1057,9 +1057,11 @@ static inline void inline_movetoorigin(int cursor_row) {
 static inline void inline_moveby(int dx, int dy) {
     char seq[INLINE_ESCAPECODE_MAXLENGTH];
 
-    if (dy!=0) { // Vertical 
-        int n = snprintf(seq, sizeof(seq), "\x1b[%d%c", abs(dy), (dy < 0 ? 'A' : 'B'));
+    if (dy<0) { // Up
+        int n = snprintf(seq, sizeof(seq), "\x1b[%dA", abs(dy));
         write(STDOUT_FILENO, seq, n);
+    } else {
+        for (int i = 0; i < dy; i++) inline_emit("\n"); // Ensure scroll
     }
 
     if (dx!=0) { // Horizontal
