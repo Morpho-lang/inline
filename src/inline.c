@@ -1036,6 +1036,7 @@ static inline void inline_clipgraphemerange(inline_editor *edit, int line_start,
 
     if (start < 0) start = *g_end; // Clamp if line is empty or viewport is beyond end
     if (end < start) end = start;
+    else if (end > start && edit->buffer[edit->graphemes[end-1]] == '\n') end--; 
 
     *g_start = start;
     *g_end   = end;
@@ -1079,8 +1080,6 @@ static inline void inline_moveby(int dx, int dy) {
  *                                     and prompt widt, or -1 if outside clipping window; otherwise not changed. */
 static void inline_renderline(inline_editor *edit, const char *prompt, size_t byte_start, size_t byte_end, 
                                int logical_cursor_col, bool is_last, int *rendered_cursor_col) {
-    write(STDOUT_FILENO, "\r", 1);        // Move cursor to start of line
-
     write(STDOUT_FILENO, prompt, (unsigned int) strlen(prompt)); // Write prompt
     int prompt_width = 0; // Calculate its display width
     if (!inline_stringwidth(edit, prompt, &prompt_width)) prompt_width = 0; 
@@ -1143,11 +1142,12 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
                 selection_on = in_selection;
             }
 
-            write(STDOUT_FILENO, edit->buffer + gs, (unsigned int) (ge - gs));
+            if (edit->buffer[gs] == '\n') break; 
 
             if (logical_cursor_col >= 0 &&  // Check if this grapheme was where the cursor is
                 line_start + logical_cursor_col == g) rendered_cursor_posn = rendered_width;
-    
+
+            write(STDOUT_FILENO, edit->buffer + gs, (unsigned int) (ge - gs));
             rendered_width += inline_graphemewidth(edit->buffer + gs, ge - gs);
         }
 
@@ -1191,7 +1191,7 @@ void inline_redraw(inline_editor *edit) {
     int cursor_row, cursor_col; // Compute logical cursor column and row (pre-clipping)
     inline_cursorposn(edit, &cursor_row, &cursor_col);
 
-    inline_movetoorigin(cursor_row); 
+    inline_movetoorigin(cursor_row); // Use the last known position of the cursor
 
     int rendered_cursor_col = -1;  // To be filled out by inline_renderline
 
@@ -1200,11 +1200,15 @@ void inline_redraw(inline_editor *edit) {
         size_t byte_end   = edit->lines[i+1];
         bool is_last = (i == edit->line_count - 1);
 
+        inline_emit("\r");        // Move cursor to start of line
+
         inline_renderline(edit, (i==0 ? edit->prompt : edit->continuation_prompt), // prompt
                           byte_start, byte_end, 
                           (cursor_row == i ? cursor_col : -1), // cursor column if on this line
                           is_last, // whether we're on the last line or not
-                          &rendered_cursor_col );      
+                          &rendered_cursor_col );
+                          
+        if (i + 1 < edit->line_count) inline_emit("\n"); // Move to next line if not at end
     }
 
     write(STDOUT_FILENO, "\r", 1); // Move to start of line
