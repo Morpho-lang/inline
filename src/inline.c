@@ -35,6 +35,8 @@
 
 #define INLINE_INVALID -1 
 
+#define INLINE_TAB_WIDTH 2
+
 #ifdef _WIN32
 typedef DWORD termstate_t;
 #else 
@@ -670,6 +672,7 @@ static bool inline_checkextenders(const unsigned char *g, size_t len) {
 static int inline_graphemewidth(const char *p, size_t len) {
     const unsigned char *g = (const unsigned char *) p; 
     if (!len) return 0;
+    if (g[0] == '\t') return INLINE_TAB_WIDTH; // Tab 
     if (g[0] < 0x80) return 1; // ASCII fast path
 
     if (len >= 2 && (g[0] == 0xCC || g[0] == 0xCD)) return 0; // Combining-only grapheme (rare)
@@ -1165,7 +1168,9 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
             if (logical_cursor_col >= 0 &&  // Check if this grapheme was where the cursor is
                 line_start + logical_cursor_col == g) rendered_cursor_posn = rendered_width;
 
-            write(STDOUT_FILENO, edit->buffer + gs, (unsigned int) (ge - gs));
+            if (edit->buffer[gs] == '\t') {
+                for (int i=0; i<INLINE_TAB_WIDTH; i++) inline_emit(" ");
+            } else write(STDOUT_FILENO, edit->buffer + gs, (unsigned int) (ge - gs));
             rendered_width += inline_graphemewidth(edit->buffer + gs, ge - gs);
         }
 
@@ -1800,7 +1805,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             if (inline_havesuggestions(edit)) {
                 inline_advancesuggestions(edit, 1);
                 generatesuggestions=false; 
-            }
+            } else if (!inline_insert(edit, "\t", 1)) return false;
             break; 
         case KEY_SHIFT_TAB:
             if (inline_havesuggestions(edit)) {
