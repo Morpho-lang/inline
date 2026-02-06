@@ -9,6 +9,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#define INLINE_VERSION_MAJOR 0
+#define INLINE_VERSION_MINOR 1
+#define INLINE_VERSION_PATCH 0
+
 /* Forward declaration of the line editor structure */
 typedef struct inline_editor inline_editor;
 
@@ -107,7 +111,7 @@ typedef int (*inline_widthfn)(const char *g, size_t len);
  * ********************************************************************** */
 
 /** @brief Create a new line editor.
- *  @param[in] prompt   The prompt string to display.
+ *  @param[in] prompt   The prompt string to display. This is immediately copied and you may free/modify upon return.
  *  @returns A newly allocated line editor.*/
 inline_editor *inline_new(const char *prompt);
 
@@ -117,7 +121,7 @@ void inline_free(inline_editor *edit);
 
 /** @brief Read a line of input from the terminal.
  *  @param[in] edit   Line editor to use.
- *  @returns A heap allocated UTF-8 string containing the user's input, or NULL on EOF. 
+ *  @returns A heap allocated UTF-8 string containing the user's input, or NULL on EOF or error. 
  *           Caller owns the string and must call it later using free(). */
 char *inline_readline(inline_editor *edit);
 
@@ -164,7 +168,7 @@ void inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref);
  *  @param[in] edit                 Line editor to configure.
  *  @param[in] fn                   Multiline callback.
  *  @param[in] ref                  User-supplied reference pointer.
- *  @param[in] continuation_prompt  Prompt to use for continuation lines. */
+ *  @param[in] continuation_prompt  Prompt to use for continuation lines; this is copied immediately and you may free/modify after. */
 void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
 
 /** @brief Supply a custom grapheme splitter.
