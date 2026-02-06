@@ -155,8 +155,8 @@ void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref)
  *  @param[in] edit     Line editor to configure.
  *  @param[in] count    Number of entries in the palette.
  *  @param[in] palette  Array mapping semantic color indices to color ints.
- */
-void inline_setpalette(inline_editor *edit, int count, const int *palette);
+ *  @returns: true on success; false otherwise */
+bool inline_setpalette(inline_editor *edit, int count, const int *palette);
 
 /** @brief Enable autocomplete.
  *  @param[in] edit   Line editor to configure.
@@ -168,8 +168,9 @@ void inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref);
  *  @param[in] edit                 Line editor to configure.
  *  @param[in] fn                   Multiline callback.
  *  @param[in] ref                  User-supplied reference pointer.
- *  @param[in] continuation_prompt  Prompt to use for continuation lines; this is copied immediately and you may free/modify after. */
-void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
+ *  @param[in] continuation_prompt  Prompt to use for continuation lines; this is copied immediately and you may free/modify after. 
+ *  @returns true on success; false otherwise */
+bool inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
 
 /** @brief Supply a custom grapheme splitter.
  *  @param[in] edit                 Line editor to configure.

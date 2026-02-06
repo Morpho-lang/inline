@@ -199,18 +199,19 @@ void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref)
 }
 
 /** API function to set the color palette */
-void inline_setpalette(inline_editor *edit, int count, const int *palette) {
+bool inline_setpalette(inline_editor *edit, int count, const int *palette) {
     free(edit->palette); // Clear any old palette data
     edit->palette = NULL;
     edit->palette_count = 0;
 
-    if (count <= 0 || palette == NULL) return;
+    if (count <= 0 || palette == NULL) return false;
 
     edit->palette = malloc(sizeof(int) * count);
-    if (!edit->palette) return;
+    if (!edit->palette) return false;
 
     memcpy(edit->palette, palette, sizeof(int) * count);
     edit->palette_count = count;
+    return true; 
 }
 
 /** API function to enable autocomplete */
@@ -220,12 +221,12 @@ void inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref) {
 }
 
 /** API function to enable multiline editing */
-void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt) {
+bool inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt) {
     edit->multiline_fn = fn;
     edit->multiline_ref = ref;
 
     free(edit->continuation_prompt);
-    edit->continuation_prompt = inline_strdup(continuation_prompt ? continuation_prompt : edit->prompt);
+    return edit->continuation_prompt = inline_strdup(continuation_prompt ? continuation_prompt : edit->prompt);
 }
 
 /** API function to use a custom grapheme splitter */
