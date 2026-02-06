@@ -129,15 +129,14 @@ The callback has the following signature:
 
     typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset, inline_colorspan_t *out);
 
-When inline wishes to understand how to highlight the buffer, it repeatedly calls the callback to determine the next span to color. The complete contents of the input buffer are passed in `utf8`. The callback should start scanning the buffer from byte offset `offset` and determine the next span to color. Spans must not overlap and should be monotonically increasing. When the callback has done so, it fills out the structure `inline_colorspan_t`:
+When inline wishes to understand how to highlight the buffer, it repeatedly calls the callback to determine the next span to color. The complete contents of the input buffer are passed in `utf8`. The callback should start scanning the buffer from byte offset `offset` and determine the end of the next span to color. Spans must not overlap and should be monotonically increasing. When the callback has done so, it fills out the structure `inline_colorspan_t`:
 
     typedef struct {
-        size_t byte_start; /* inclusive start of color span */
         size_t byte_end; /* exclusive end of color span */
         int color;     /* Index into color palette */
     } inline_colorspan_t;
 
-The callback must update the `byte_end` and `color` entries, notably must always advance `byte_end` beyond `offset` or undefined behavior occurs. Note that the `color` entry is an index into a palette array, not a color value directly. The callback should return `true` if there are more spans to color and `false` to halt highlighting and display any remaining text in the default color. Inline resets terminal attributes at the end of each redraw.
+The callback must update the `byte_end` and `color` entries and notably must always advance `byte_end` beyond `offset` or undefined behavior occurs. Note that the `color` entry is an index into a palette array, not a color value directly. The callback should return `true` if there are more spans to color and `false` to halt highlighting and display any remaining text in the default color. Inline resets terminal attributes at the end of each redraw.
 
 The palette is configured by calling: 
 

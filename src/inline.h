@@ -87,7 +87,7 @@ typedef bool (*inline_multilinefn) (const char *utf8, void *ref);
 /** @brief Unicode grapheme splitter callback function
  *  @param[in]  in         - a string
  *  @param[in]  end        - end of string
- *  @returns offset to next grapheme
+ *  @returns number of bytes in the next grapheme or 0 if incomplete
  *  @details If provided, inline will use this function to split UTF8 code 
  *           into graphemes. Shims are provided in the documentation for 
  *           libgrapheme and libunistring. A fallback implementation is used

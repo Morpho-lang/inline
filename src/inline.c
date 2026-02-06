@@ -441,7 +441,10 @@ static bool inline_extendbufferby(inline_editor *edit, size_t extra) {
     if (required <= edit->buffer_size) return true;  // Sufficient space already
 
     size_t newcap = edit->buffer_size ? edit->buffer_size : INLINE_DEFAULT_BUFFER_SIZE;
-    while (newcap < required) newcap *= 2; // Grow exponentially
+    while (newcap < required) {
+        if (newcap > SIZE_MAX / 2) return false; 
+        newcap *= 2; // Grow exponentially
+    }
 
     void *p = realloc(edit->buffer, newcap);
     if (!p) return false;  
@@ -551,12 +554,15 @@ static size_t inline_graphemesplit(const char *in, const char *end) {
 
 /** Compute grapheme locations */
 static void inline_recomputegraphemes(inline_editor *edit) {
-    int needed = (int) edit->buffer_len + 1; // Assume 1 byte per character as a worst case + sentinel
+    size_t needed = edit->buffer_len + 1; // Assume 1 byte per character as a worst case + sentinel
 
     size_t required_bytes = needed * sizeof(size_t); // Ensure capacity
     if (required_bytes > edit->grapheme_size) {
         size_t newsize = (edit->grapheme_size ? edit->grapheme_size : INLINE_DEFAULT_BUFFER_SIZE);
-        while (newsize < required_bytes) newsize *= 2;
+        while (newsize < required_bytes) {
+            if (newsize > SIZE_MAX / 2) return; 
+            newsize *= 2;
+        }
 
         size_t *new = realloc(edit->graphemes, newsize);
         if (!new) {
@@ -806,7 +812,10 @@ static bool inline_copytoclipboard(inline_editor *edit, const char *string, size
     size_t needed = length + 1; // Check if we have sufficient capacity and realloc if necessary
     if (needed > edit->clipboard_size) { 
         size_t newsize = edit->clipboard_size ? edit->clipboard_size : INLINE_DEFAULT_BUFFER_SIZE;
-        while (newsize < needed) newsize *= 2;
+        while (newsize < needed) {
+            if (newsize > SIZE_MAX / 2) return false; 
+            newsize *= 2;
+        }
 
         char *newbuf = realloc(edit->clipboard, newsize);
         if (!newbuf) return false; // Leave clipboard unchanged on allocation failure
@@ -1110,15 +1119,17 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     int g = g_start;
     size_t off = edit->graphemes[g_start];
 
+    inline_syntaxcolorfn syntax_fn = (edit->palette_count>0 ? edit->syntax_fn : NULL);
+
     // Render syntax-colored, clipped graphemes
     while (g < g_end && off < byte_end) {
         // Compute color span from current point
-        inline_colorspan_t span = { .byte_end = off + 1, .color = -1 };
+        inline_colorspan_t span = { .byte_end = off + 1, .color = 0 };
         bool ok=false;
-        if (edit->syntax_fn) ok=edit->syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
+        if (syntax_fn) ok=syntax_fn(edit->buffer, edit->syntax_ref, off, &span);
         if (!ok || span.byte_end <= off) span.byte_end = byte_end;   // treat rest of line as uncolored
 
-        int span_color = (span.color < edit->palette_count ? edit->palette[span.color] : -1);
+        int span_color = (span.color>=0 && span.color < edit->palette_count ? edit->palette[span.color] : -1);
 
         // Change color only if needed
         if (span_color != current_color) {
@@ -1190,7 +1201,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
 }
 
 /** Redraw the entire buffer in multiline mode */
-void inline_redraw(inline_editor *edit) {
+static void inline_redraw(inline_editor *edit) {
     inline_emit(TERM_HIDECURSOR); // Prevent flickering
 
     int cursor_row, cursor_col; // Compute logical cursor column and row (pre-clipping)
@@ -1241,7 +1252,7 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
             return;
         }
 
-        if (span.color<edit->palette_count) inline_emitcolor(edit->palette[span.color]);
+        if (span.color<edit->palette_count && span.color>=0) inline_emitcolor(edit->palette[span.color]);
         write(STDOUT_FILENO, string + offset, (unsigned int) (span.byte_end - offset));
         inline_emit(TERM_RESETFOREGROUND);
 
