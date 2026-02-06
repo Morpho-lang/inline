@@ -6,6 +6,7 @@
 #include "inline.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -1272,10 +1273,138 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
 /** Type that represents a single unit of input */
 typedef unsigned char rawinput_t;
 
+#ifdef _WIN32 
+static bool inline_readkeyevent(KEY_EVENT_RECORD *k) {
+    INPUT_RECORD rec;
+    DWORD nread;
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+
+    for (;;) {
+        if (!ReadConsoleInputW(hIn, &rec, 1, &nread)) return false;
+
+        if (rec.EventType == WINDOW_BUFFER_SIZE_EVENT) {
+            if (inline_lasteditor) inline_lasteditor->refresh = true;
+            continue;
+        }
+
+        if (rec.EventType == KEY_EVENT && rec.Event.KeyEvent.bKeyDown) {
+            *k = rec.Event.KeyEvent;
+            return true;
+        }
+    }
+}
+
+/** Helper to emit an escape sequence */
+static int _emitstr(const char *s, unsigned char out[8]) {
+    int n = 0;
+    while (s[n] && n < 8) out[n] = (unsigned char)s[n++];
+    return n;
+}
+
+/** Mapping from Windows VK codes to POSIX escape sequences */
+typedef struct {
+    WORD vk;
+    const char *seq;
+} vkmap_t;
+
+static const vkmap_t vk_table[] = {
+    { VK_RETURN, "\n"     },
+    { VK_BACK,   "\b"     },
+    { VK_DELETE, "\x7f"   },
+    { VK_UP,     "\x1b[A" },
+    { VK_DOWN,   "\x1b[B" },
+    { VK_RIGHT,  "\x1b[C" },
+    { VK_LEFT,   "\x1b[D" },
+    { VK_HOME,   "\x1b[H" },
+    { VK_END,    "\x1b[F" },
+    { VK_PRIOR,  "\x1b[5~" }, // Page Up
+    { VK_NEXT,   "\x1b[6~" }, // Page Down
+};
+
+/** Convert windows keypress event to POSIX */
+static int inline_translatekeypress(const KEY_EVENT_RECORD *k, unsigned char out[8]) {
+    WORD vk = k->wVirtualKeyCode;
+    WCHAR wc = k->uChar.UnicodeChar;
+    DWORD mods = k->dwControlKeyState;
+
+    // Shift-arrows
+    if ((mods & SHIFT_PRESSED) && (vk == VK_LEFT || vk == VK_RIGHT)) {
+        return _emitstr( (vk == VK_LEFT ? "\x1b[1;2D" : "\x1b[1;2C"), out );
+    }
+
+    // Search table of mappings
+    for (size_t i = 0; i < sizeof(vk_table)/sizeof(vk_table[0]); i++) {
+        if (vk_table[i].vk == vk) return _emitstr(vk_table[i].seq, out);
+    }
+
+    // Ctrl + char
+    if (mods & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
+        if (vk >= 'A' && vk <= 'Z') {
+            out[0] = (vk - 'A') + 1;
+            return 1;
+        }
+    }
+
+    if (wc != 0) { // Unicode
+        if (wc < 0x80) {
+            out[0] = (unsigned char)wc; 
+            return 1;
+        } else if (wc < 0x800) {
+            out[0] = 0xC0 | (wc >> 6);
+            out[1] = 0x80 | (wc & 0x3F);
+            return 2;
+        } else if (wc < 0xD800 || wc > 0xDFFF) {    
+            out[0] = 0xE0 | (wc >> 12);
+            out[1] = 0x80 | ((wc >> 6) & 0x3F);
+            out[2] = 0x80 | (wc & 0x3F);
+            return 3;
+        } else if (wc >= 0xD800 && wc <= 0xDBFF) { // high surrogate
+            // Need the next KEY_EVENT for the low surrogate
+            KEY_EVENT_RECORD next;
+            if (!inline_readkeyevent(&next)) return 0;
+
+            WCHAR wc2 = next.uChar.UnicodeChar;
+            if (wc2 >= 0xDC00 && wc2 <= 0xDFFF) {
+                uint32_t cp = 0x10000 + (((wc - 0xD800) << 10) | (wc2 - 0xDC00));
+                out[0] = 0xF0 | (cp >> 18);
+                out[1] = 0x80 | ((cp >> 12) & 0x3F);
+                out[2] = 0x80 | ((cp >> 6) & 0x3F);
+                out[3] = 0x80 | (cp & 0x3F);
+                return 4;
+            }
+        }
+    }
+
+    return 0; // Unknown key → ignore
+}
+
+#endif
+
 /** Await a single raw unit of input and store in a rawinput_t */
 static bool inline_readraw(rawinput_t *out) {
+#ifdef _WIN32
+    static unsigned char buf[16]; // local ring buffer
+    static int len = 0;
+    static int pos = 0;
+
+    if (pos < len) { // Return remaining bytes
+        *out = buf[pos++];
+        return true;
+    }
+
+    KEY_EVENT_RECORD k; // Get new key event
+    do {
+        if (!inline_readkeyevent(&k)) return false;
+        len = inline_translatekeypress(&k, buf); // Translate it to POSIX
+        pos = 0;
+    } while (len == 0);
+
+    *out = buf[pos++]; // Return first byte
+    return true;
+#else
     int n = (int) read(STDIN_FILENO, out, 1);
     return n == 1;
+#endif
 }
 
 /* ----------------------------------------
@@ -1627,7 +1756,6 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
 static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     bool generatesuggestions=true, clearselection=true, endbrowsing=true;
     switch (key->type) {
-        case KEY_END:
         case KEY_RETURN: 
             if (!edit->multiline_fn ||
                 !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
@@ -1663,8 +1791,8 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             inline_setcursorposn(edit, edit->grapheme_count);
             endbrowsing=false;
             break;
-        case KEY_HOME:     inline_home(edit);        break;
-        //case KEY_END:    inline_end(edit);         break;
+        case KEY_HOME:      inline_home(edit);       break;
+        case KEY_END:       inline_end(edit);        break;
         case KEY_PAGE_UP:   inline_pageup(edit);     break; 
         case KEY_PAGE_DOWN: inline_pagedown(edit);   break;
         case KEY_DELETE:    inline_delete(edit);     break;
