@@ -2,6 +2,8 @@
 if (MSVC)
     add_compile_options(/wd5045) # QSpectre warnings
     add_compile_options(/wd4668) # Macro warnings from windows libraries
+    add_compile_options(/wd4710) # inlining of functions
+    add_compile_options(/wd4711) # inlining of functions
 endif()
 
 # Library source files
