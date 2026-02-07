@@ -1809,7 +1809,7 @@ static void inline_historykey(inline_editor *edit, int delta) {
 /** Transpose two graphemes */
 static void inline_transpose(inline_editor *edit) {
     size_t n = edit->grapheme_count, cur = edit->cursor_posn;
-    if (n < edit->grapheme_count || cur == 0) return;
+    if (n < 2 || cur == 0) return;
 
     size_t a = (cur >= n ? n-2 : cur-1), b = a + 1; // The two graphemes to swap
     size_t a_start, a_end, b_start, b_end; // Their byte bounds
