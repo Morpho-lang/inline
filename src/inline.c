@@ -334,7 +334,9 @@ static void inline_registeremergencyhandlers(void) {
     SetConsoleCtrlHandler(inline_consolehandler, TRUE);
 #else 
     const int sigs[] = { // List of signals to respond to
-        SIGINT, SIGTERM, SIGQUIT, SIGHUP, SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE, SIGWINCH
+        SIGWINCH,                                // Window size change
+        SIGTERM, SIGQUIT, SIGHUP,                // Graceful exit signals
+        SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE // Crash signals
     };
 
     struct sigaction sa;
@@ -1758,7 +1760,7 @@ static void inline_cutline(inline_editor *edit, bool before) {
     size_t b_start = min(b_line, b_cursor), b_end = max(b_line, b_cursor);
     if (!before && b_end>0 && edit->buffer[b_end-1]=='\n') b_end--; // Don't include newline
     if (b_start==b_end) return; // Nothing to copy
-    
+
     inline_copytoclipboard(edit, edit->buffer + b_start, b_end - b_start);
     inline_deletebytes(edit, b_start, b_end);
     inline_setcursorposn(edit, inline_findgraphemeindex(edit, b_start)); // Cursor moves to start of deleted region
