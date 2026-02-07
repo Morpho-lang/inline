@@ -907,7 +907,7 @@ void inline_sethistorylength(inline_editor *edit, int maxlen) {
     edit->max_history_length=maxlen; 
 
     if (maxlen > 0) { // Remove excess entries if necessary
-        while (edit->history.count > maxlen) inline_stringlist_pop_front(&edit->history);
+        while (edit->history.count > maxlen) inline_stringlist_popfront(&edit->history);
     } else if (maxlen == 0) { // Clear history entirely
         inline_stringlist_clear(&edit->history);
     }
@@ -1686,9 +1686,11 @@ static void inline_delete(inline_editor *edit) {
 static void inline_clear(inline_editor *edit) {
     edit->buffer_len = 0; // Clear text buffer 
     edit->buffer[0] = '\0';
-    edit->grapheme_count = 0; // Reset graphemes
+    inline_recomputegraphemes(edit);
+    inline_recomputelines(edit);
     inline_setcursorposn(edit, 0); // Reset cursor
     edit->refresh = true;
+    edit->suggestion_shown = false;
 }
 
 /** Navigation keys */
