@@ -442,6 +442,7 @@ static char *inline_strdup(const char *s) {
 
 /** Ensure the buffer can grow by at least `extra` bytes. */
 static bool inline_extendbufferby(inline_editor *edit, size_t extra) {
+    if (extra > SIZE_MAX - edit->buffer_len - 1) return false; // Prevent overflow
     size_t required = edit->buffer_len + extra + 1;  // +1 for null terminator
 
     if (required <= edit->buffer_size) return true;  // Sufficient space already

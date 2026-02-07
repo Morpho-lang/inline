@@ -12,8 +12,8 @@ A minimal application using inline is as simple as:
         inline_editor *edit = inline_new(">"); // Create an editor and set the prompt
         for (bool done=false; !done; ) {
             char *line = inline_readline(edit); // Read a line of text
-            printf("%s\n");
             if (line && line[0]=='q') done=true; // Quit
+            printf("%s\n", line);
             free(line); // You own the string returned from inline_readline 
         } 
         
