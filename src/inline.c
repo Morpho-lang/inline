@@ -107,6 +107,7 @@ typedef struct inline_editor {
     inline_widthfn width_fn;              // Custom grapheme width function
 
     inline_stringlist_t history;          // List of history entries 
+    int max_history_length;               // Maximum length of the history
 
     inline_viewport viewport;             // Terminal viewport
 
@@ -155,6 +156,7 @@ inline_editor *inline_new(const char *prompt) {
     edit->buffer_len = 0;
 
     edit->selection_posn = INLINE_INVALID; // No selection
+    edit->max_history_length = INLINE_INVALID; // Unlimited history
 
     inline_stringlist_init(&edit->suggestions);
     inline_stringlist_init(&edit->history);
@@ -749,6 +751,16 @@ static bool inline_stringlist_add(inline_stringlist_t *list, const char *s) {
     return true; 
 }
 
+/** Removes and frees the first element of the stringlist;  */
+static void inline_stringlist_popfront(inline_stringlist_t *list) {
+    if (list->count == 0) return;
+    free(list->items[0]);
+
+    // Shift pointers down safely (overlapping copy)
+    if (list->count > 1) memmove(list->items, list->items + 1, sizeof(char*) * (list->count - 1));
+    list->count--;
+}
+
 /** Clear a stringlist */
 static void inline_stringlist_clear(inline_stringlist_t *list) {
     if (list->items) {
@@ -890,16 +902,29 @@ static void inline_advancesuggestions(inline_editor *edit, int delta) {
  * History
  * ---------------------------------------- */
 
+/** Set the history length. */
+void inline_sethistorylength(inline_editor *edit, int maxlen) {
+    edit->max_history_length=maxlen; 
+
+    if (maxlen > 0) { // Remove excess entries if necessary
+        while (edit->history.count > maxlen) inline_stringlist_pop_front(&edit->history);
+    } else if (maxlen == 0) { // Clear history entirely
+        inline_stringlist_clear(&edit->history);
+    }
+}
+
 /** Adds an entry to the history list */
-static void inline_addhistory(inline_editor *edit, const char *buffer) {
-    if (!buffer || !*buffer) return; // Skip empty buffers
+bool inline_addhistory(inline_editor *edit, const char *entry) {
+    if (!entry || !*entry || !edit->max_history_length) return false; // Skip empty buffers
 
     if (edit->history.count > 0) { // Avoid duplicate consecutive entries
         const char *last = edit->history.items[edit->history.count - 1];
-        if (strcmp(last, buffer) == 0) return;
+        if (strcmp(last, entry) == 0) return false;
     }
 
-    inline_stringlist_add(&edit->history, buffer);
+    inline_stringlist_add(&edit->history, entry);
+    if (edit->max_history_length > 0 && edit->history.count > edit->max_history_length) inline_stringlist_popfront(&edit->history); 
+    return true; 
 }
 
 /** Advances the current history */
@@ -920,7 +945,7 @@ static void inline_advancehistory(inline_editor *edit, int delta) {
 }
 
 /** End browsing */
-static void inline_endbrowsing(inline_editor *edit) {
+static void inline_endhistorybrowsing(inline_editor *edit) {
     edit->history.index = INLINE_INVALID;
 }
 
@@ -932,7 +957,7 @@ static void inline_endbrowsing(inline_editor *edit) {
 static void inline_reset(inline_editor *edit) {
     inline_clear(edit);
     inline_clearselection(edit);
-    inline_endbrowsing(edit);
+    inline_endhistorybrowsing(edit);
     inline_stringlist_clear(&edit->suggestions);
     edit->rawmode_enabled = false;
 }
@@ -1260,7 +1285,9 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
         }
 
         if (span.color<edit->palette_count && span.color>=0) inline_emitcolor(edit->palette[span.color]);
-        write(STDOUT_FILENO, string + offset, (unsigned int) (span.byte_end - offset));
+        if (string[offset] == '\t') {
+            for (int i=0; i<INLINE_TAB_WIDTH; i++) inline_emit(" ");
+        } else write(STDOUT_FILENO, string + offset, (unsigned int) (span.byte_end - offset));
         inline_emit(TERM_RESETFOREGROUND);
 
         offset = span.byte_end;
@@ -1823,7 +1850,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
 
     if (clearselection) inline_clearselection(edit);
     if (generatesuggestions) inline_generatesuggestions(edit);
-    if (endbrowsing) inline_endbrowsing(edit);
+    if (endbrowsing) inline_endhistorybrowsing(edit);
     edit->refresh = true;
     return true;
 }

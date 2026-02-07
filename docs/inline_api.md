@@ -2,7 +2,7 @@
 
 Inline is a small, grapheme-aware line editor designed for embedding in other applications. It provides a modern text model and features such as syntax highlighting, history, autocomplete, copy/paste, and multiline editing, while remaining lightweight and portable.
 
-This document describes the complete inline API; the 11 API functions are also documented in inline.h. An example application that reads lines of C source code with all features is provided to illustrate how to implement callbacks required by the API. 
+This document describes the complete inline API; the 13 API functions are also documented in inline.h. An example application that reads lines of C source code with all features is provided to illustrate how to implement callbacks required by the API. 
 
 In this document, “grapheme” refers to a Unicode extended grapheme cluster as defined by Unicode Standard Annex #29.
 
@@ -91,6 +91,20 @@ The callback has the following signature:
 When called by inline, the callback is provided with a pointer to a grapheme and its length. It should return the display width of the grapheme in columns. 
 
 In practice, programmers embedding inline are expected to override the default width estimator less frequently than the grapheme splitter. Importantly, note that width estimation functions provided by existing libraries (such as `u8_width()` in libunistring) are often *less* correct for interactive terminal use, as they operate on individual codepoints rather than complete graphemes. Typical use cases for supplying a custom width estimator include handling terminal-specific or grapheme-specific quirks or supporting applications that involve complex writing systems.
+
+## History
+
+Inline can maintain a history of previous input that the user can recall during an editing session using the up/down arrow keys. A new entry is added to the history by `inline_readline` after editing is complete before it returns to the caller; the host program need not add the entry itself. The contents of the history are managed by `inline` and free'd when the editor is free'd with `inline_free`. Two API functions are provided to control the history. The first,  
+
+    inline_sethistorylength(inline_editor *edit, int maxlen);
+
+allows the programmer to set a length limit. The value of `maxlen` indicates, if `maxlen` is positive, the maximum number of history values stored. If `maxlen` is zero, the history feature is disabled entirely. Negative values of `maxlen` indicate unlimited history, which is the default setting. `inline_sethistorylength` may be called multiple times; if there are most history entries stored than allowed by `maxlen` excess entries are immediately free'd.
+
+It is possible to add entries to the history manually using, 
+
+    inline_addhistory(inline_editor *edit, const char *entry);
+
+The contents of `entry` are immediately copied into the history list provided entry is not `NULL` or empty; `entry` itself is not stored directly. The return value of `inline_addhistory` indicates whether the contents of `entry` were successfully added to the history list. 
 
 ## Autocomplete
 

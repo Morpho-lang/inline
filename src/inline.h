@@ -125,6 +125,18 @@ void inline_free(inline_editor *edit);
  *           Caller owns the string and must call it later using free(). */
 char *inline_readline(inline_editor *edit);
 
+/** @brief Sets the maximum length of the history.
+ *  @param[in] edit   Line editor to configure. 
+ *  @param[in] maxlen Maximum number of entries in the history buffer; 
+ *                    negative values mean unlimited; 0 disables history */
+void inline_sethistorylength(inline_editor *edit, int maxlen);
+
+/** @brief Adds an entry to the history.
+ *  @param[in] edit   Line editor to use. 
+ *  @param[in] entry  Entry to add. This is copied immediately and the pointer is not stored. 
+ *  @returns true if the entry was successfully added to the history list; false otherwise */
+bool inline_addhistory(inline_editor *edit, const char *entry);
+
 /** @brief Enable syntax coloring.
  *  @param[in] edit   Line editor to configure.
  *  @param[in] fn     Syntax coloring callback.

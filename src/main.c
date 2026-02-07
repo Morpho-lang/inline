@@ -107,7 +107,7 @@ static bool multilinefn(const char *in, void *ref) {
 }
 
 int main(void) {
-    printf("Inline editor test...\n");
+    printf("Inline editor test... (type 'quit' to exit)\n");
 
     inline_editor *edit = inline_new("> ");
     if (!edit) {
@@ -115,6 +115,7 @@ int main(void) {
         return 1;
     }
 
+    inline_sethistorylength(edit, 5);
     inline_autocomplete(edit, completefn, NULL); // Configure editor with autocomplete
     inline_syntaxcolor(edit, syntaxhighlighterfn, NULL); // Configure editor with syntax highlighter
     inline_setpalette(edit, (int) sizeof(palette)/sizeof(int), palette);
@@ -122,7 +123,7 @@ int main(void) {
 
     printf("Editor created successfully.\n");
 
-    for (int i=0; i<1; i++) {
+    for (;;) {
         char *line = inline_readline(edit);
         if (line) {
             printf("You entered: '"); 
