@@ -87,6 +87,7 @@ typedef struct inline_editor {
 
     int cursor_posn;                      // Position of cursor in graphemes
     int selection_posn;                   // Selection posn in graphemes 
+    int term_cursor_row;                  // Record the cursor's physical row
 
     inline_syntaxcolorfn syntax_fn;       // Syntax coloring callback
     void *syntax_ref;                     // User reference
@@ -304,19 +305,21 @@ static void inline_emergencyrestore(void) {
 }
 
 #ifdef _WIN32
+static int resize_pending = 0; // Unused
 static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
     inline_emergencyrestore(); // Restore on any console event
     return FALSE; // Allow default behavior
 }
 #else 
+static volatile sig_atomic_t resize_pending = 0;
 static void inline_signalhandler(int sig, siginfo_t *info, void *ucontext) {
     if (sig == SIGWINCH) {
-        if (inline_lasteditor) inline_lasteditor->refresh = true;
+        resize_pending = 1;
         return; 
     } 
     inline_emergencyrestore();
-    signal(sig, SIG_DFL);
     raise(sig);
+    _Exit(128 + sig); // Fallback
 }
 #endif
 
@@ -1082,13 +1085,13 @@ static inline void inline_clipgraphemerange(inline_editor *edit, int line_start,
     *g_end   = end;
 }
 
-/** Move terminal cursor to the editor's origin given the current cursor row */
-static inline void inline_movetoorigin(int cursor_row) {
+/** Move terminal cursor to the editor's origin */
+static inline void inline_movetoorigin(inline_editor *edit) {
     write(STDOUT_FILENO, "\r", 1); // Move to start of current line
 
-    if (cursor_row > 0) { // Move up cursor_row lines
+    if (edit->term_cursor_row > 0) { // Move up cursor_row lines
         char seq[INLINE_ESCAPECODE_MAXLENGTH];
-        int n = snprintf(seq, sizeof(seq), "\x1b[%dA", cursor_row);
+        int n = snprintf(seq, sizeof(seq), "\x1b[%dA", edit->term_cursor_row);
         write(STDOUT_FILENO, seq, n);
     }
 }
@@ -1236,14 +1239,12 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
 /** Redraw the entire buffer in multiline mode */
 static void inline_redraw(inline_editor *edit) {
     inline_emit(TERM_HIDECURSOR); // Prevent flickering
+    inline_movetoorigin(edit);
 
     int cursor_row, cursor_col; // Compute logical cursor column and row (pre-clipping)
     inline_cursorposn(edit, &cursor_row, &cursor_col);
 
-    inline_movetoorigin(cursor_row); // Use the last known position of the cursor
-
     int rendered_cursor_col = -1;  // To be filled out by inline_renderline
-
     for (int i = 0; i < edit->line_count; i++) {
         size_t byte_start = edit->lines[i]; // Render lines
         size_t byte_end   = edit->lines[i+1];
@@ -1262,6 +1263,7 @@ static void inline_redraw(inline_editor *edit) {
 
     write(STDOUT_FILENO, "\r", 1); // Move to start of line
     inline_moveby(rendered_cursor_col, cursor_row - edit->line_count + 1);
+    edit->term_cursor_row = cursor_row; // Record cursor row
     inline_emit(TERM_SHOWCURSOR);
 }
   
@@ -1597,10 +1599,6 @@ static inline void inline_setcursorposn(inline_editor *edit, int new_posn) {
 
     edit->cursor_posn = new_posn;
     inline_ensurecursorvisible(edit);
-    inline_cursorposn(edit, &new_row, NULL);
-
-    int delta = new_row - old_row; // Move when the logical cursor crosses a line boundary
-    if (delta != 0) inline_moveby(0, delta);
 }
 
 /** Insert text into the buffer */
@@ -1642,6 +1640,7 @@ static void inline_deletebytes(inline_editor *edit, size_t start, size_t end) {
     edit->buffer[edit->buffer_len] = '\0'; // Ensure null termination
 
     inline_recomputegraphemes(edit);
+    inline_recomputelines(edit);
     edit->refresh = true;
 }
 
@@ -1749,6 +1748,22 @@ static void inline_cutselection(inline_editor *edit) {
     inline_deleteselection(edit);
 }
 
+/** Cut part of a line */
+static void inline_cutline(inline_editor *edit, bool before) {
+    int row;
+    inline_cursorposn(edit, &row, NULL); 
+    size_t b_line = edit->lines[row + (before ? 0 : 1)]; // line break position before or after
+    size_t b_cursor = edit->graphemes[edit->cursor_posn]; // Cursor position
+
+    size_t b_start = min(b_line, b_cursor), b_end = max(b_line, b_cursor);
+    if (!before && b_end>0 && edit->buffer[b_end-1]=='\n') b_end--; // Don't include newline
+    if (b_start==b_end) return; // Nothing to copy
+    
+    inline_copytoclipboard(edit, edit->buffer + b_start, b_end - b_start);
+    inline_deletebytes(edit, b_start, b_end);
+    inline_setcursorposn(edit, inline_findgraphemeindex(edit, b_start)); // Cursor moves to start of deleted region
+}
+
 /** Paste from clipboard */
 static void inline_paste(inline_editor *edit) {
     if (edit->clipboard && edit->clipboard_len>0) {
@@ -1777,7 +1792,9 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
         case 'E': inline_end(edit); break;
         case 'F': inline_right(edit); break;
         case 'G': return false; // exit on Ctrl-G
+        case 'K': inline_cutline(edit, false); break; // Cut to end of line
         case 'L': inline_clear(edit); break; 
+        case 'U': inline_cutline(edit, true); break; // Cut to start of line
         case 'X': inline_cutselection(edit); break; 
         case 'Y': // v fallthrough
         case 'V': inline_paste(edit); break; 
@@ -1902,9 +1919,10 @@ static void inline_supported(inline_editor *edit) {
     while (inline_readkeypress(edit, &key)) {
         if (!inline_processkeypress(edit, &key)) break;
 
-        if (edit->refresh) { 
+        if (edit->refresh || resize_pending) { 
             inline_redraw(edit); 
             edit->refresh = false; 
+            resize_pending = 0;
         }
     }
 
