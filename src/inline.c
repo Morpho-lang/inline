@@ -88,6 +88,7 @@ typedef struct inline_editor {
     int cursor_posn;                      // Position of cursor in graphemes
     int selection_posn;                   // Selection posn in graphemes 
     int term_cursor_row;                  // Record the cursor's physical row
+    int term_lines_drawn;                 // Record how many lines were previously drawn
 
     inline_syntaxcolorfn syntax_fn;       // Syntax coloring callback
     void *syntax_ref;                     // User reference
@@ -1279,9 +1280,16 @@ static void inline_redraw(inline_editor *edit) {
         if (i + 1 < edit->line_count) inline_emit("\n"); // Move to next line if not at end
     }
 
+    int extra = (edit->term_lines_drawn > edit->line_count ? edit->term_lines_drawn - edit->line_count : 0);
+    for (int i = 0; i < extra; i++) {
+        inline_emit("\n\r");
+        inline_emit(TERM_CLEAR); 
+    }
+
     write(STDOUT_FILENO, "\r", 1); // Move to start of line
-    inline_moveby(rendered_cursor_col, cursor_row - edit->line_count + 1);
+    inline_moveby(rendered_cursor_col, cursor_row - edit->line_count - extra + 1);
     edit->term_cursor_row = cursor_row; // Record cursor row
+    edit->term_lines_drawn = edit->line_count; // Record no. of lines drawn
     inline_emit(TERM_SHOWCURSOR);
 }
   
