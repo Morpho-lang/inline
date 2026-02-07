@@ -298,7 +298,7 @@ static void inline_updateterminalwidth(inline_editor *edit) {
 /* ----------------------------------------
  * Handle crashes
  * ---------------------------------------- */
-
+ 
 /** Exit handler called on crashes */
 static void inline_emergencyrestore(void) {
     if (inline_lasteditor) inline_disablerawmode(inline_lasteditor);
@@ -312,15 +312,23 @@ static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
 }
 #else 
 static volatile sig_atomic_t resize_pending = 0;
-static void inline_signalhandler(int sig, siginfo_t *info, void *ucontext) {
-    if (sig == SIGWINCH) {
-        resize_pending = 1;
-        return; 
-    } 
+static void inline_signalwinchhandler(int sig, siginfo_t *info, void *ucontext) {
+    resize_pending=1;
+}
+static void inline_signalgracefulhandler(int sig, siginfo_t *info, void *ucontext) {
+    inline_emergencyrestore();
+    _Exit(128 + sig); 
+}
+static void inline_signalcrashhandler(int sig, siginfo_t *info, void *ucontext) {
     inline_emergencyrestore();
     raise(sig);
-    _Exit(128 + sig); // Fallback
+    _Exit(128 + sig); 
 }
+typedef struct {
+    int sig;
+    void (*handler)(int, siginfo_t *, void *);
+    int flags;
+} signalhandler_t;
 #endif
 
 /** Register emergency exit and signal handlers */
@@ -333,19 +341,27 @@ static void inline_registeremergencyhandlers(void) {
 #ifdef _WIN32 
     SetConsoleCtrlHandler(inline_consolehandler, TRUE);
 #else 
-    const int sigs[] = { // List of signals to respond to
-        SIGWINCH,                                // Window size change
-        SIGTERM, SIGQUIT, SIGHUP,                // Graceful exit signals
-        SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE // Crash signals
+    static const signalhandler_t siglist[] = {
+        { SIGWINCH, inline_signalwinchhandler, SA_SIGINFO | SA_RESTART },
+        { SIGTERM,  inline_signalgracefulhandler, SA_SIGINFO | SA_RESTART },
+        { SIGQUIT,  inline_signalgracefulhandler, SA_SIGINFO | SA_RESTART },
+        { SIGHUP,   inline_signalgracefulhandler, SA_SIGINFO | SA_RESTART },
+        { SIGSEGV,  inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
+        { SIGABRT,  inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
+        { SIGBUS,   inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
+        { SIGILL,   inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
+        { SIGFPE,   inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
     };
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sigemptyset(&sa.sa_mask);
-    sa.sa_sigaction = inline_signalhandler;
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
 
-    for (size_t i = 0; i < sizeof(sigs)/sizeof(sigs[0]); i++) sigaction(sigs[i], &sa, NULL);
+    for (size_t i = 0; i < sizeof(siglist)/sizeof(siglist[0]); i++) {
+        sa.sa_sigaction = siglist[i].handler;
+        sa.sa_flags     = siglist[i].flags;
+        sigaction(siglist[i].sig, &sa, NULL);
+    }
 #endif
 }
 
@@ -1774,6 +1790,38 @@ static void inline_paste(inline_editor *edit) {
     }
 }
 
+/** Process a history keypress */
+static void inline_historykey(inline_editor *edit, int delta) {
+    inline_advancehistory(edit, delta);
+    inline_setcursorposn(edit, edit->grapheme_count); // Move to end
+    inline_clearselection(edit);
+    inline_clearsuggestions(edit);
+}
+
+/** Transpose two graphemes */
+static void inline_transpose(inline_editor *edit) {
+    size_t n = edit->grapheme_count, cur = edit->cursor_posn;
+    if (n < edit->grapheme_count || cur == 0) return;
+
+    size_t a = (cur >= n ? n-2 : cur-1), b = a + 1; // The two graphemes to swap
+    size_t a_start, a_end, b_start, b_end; // Their byte bounds
+    inline_graphemerange(edit, a, &a_start, &a_end);
+    inline_graphemerange(edit, b, &b_start, &b_end);
+
+    size_t a_len = a_end - a_start, b_len = b_end - b_start; // Temporary buffer
+    char *tmp = malloc(a_len);
+    if (!tmp) return;
+
+    memcpy(tmp, edit->buffer + a_start, a_len); // Copy a into temporary buffer
+    memmove(edit->buffer + a_start, edit->buffer + b_start, b_len); // Copy b overwriting a 
+    memcpy(edit->buffer + a_start + b_len, tmp, a_len); // Copy a from the temporary buffer
+
+    free(tmp);
+
+    inline_recomputegraphemes(edit);
+    if (cur < n) inline_setcursorposn(edit, edit->cursor_posn+1);
+}
+
 /** Apply current suggestion */
 static void inline_applysuggestion(inline_editor *edit) {
     const char *suffix = inline_currentsuggestion(edit);
@@ -1796,6 +1844,9 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
         case 'G': return false; // exit on Ctrl-G
         case 'K': inline_cutline(edit, false); break; // Cut to end of line
         case 'L': inline_clear(edit); break; 
+        case 'N': inline_historykey(edit, 1); break; // Next history
+        case 'P': inline_historykey(edit, -1); break; // Previous history
+        case 'T': inline_transpose(edit); break; 
         case 'U': inline_cutline(edit, true); break; // Cut to start of line
         case 'X': inline_cutselection(edit); break; 
         case 'Y': // v fallthrough
@@ -1836,13 +1887,11 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             clearselection=false; 
             break; 
         case KEY_UP:
-            inline_advancehistory(edit, -1);
-            inline_setcursorposn(edit, edit->grapheme_count);
+            inline_historykey(edit, -1);
             endbrowsing=false;
             break;
         case KEY_DOWN:
-            inline_advancehistory(edit, 1);
-            inline_setcursorposn(edit, edit->grapheme_count);
+            inline_historykey(edit, +1);
             endbrowsing=false;
             break;
         case KEY_HOME:      inline_home(edit);       break;
@@ -1928,6 +1977,9 @@ static void inline_supported(inline_editor *edit) {
         }
     }
 
+    inline_clearselection(edit);
+    inline_clearsuggestions(edit);
+    inline_redraw(edit);
     inline_disablerawmode(edit);
 
     if (edit->buffer_len > 0) inline_addhistory(edit, edit->buffer); // Add to history if non-empty 
