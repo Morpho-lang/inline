@@ -343,9 +343,9 @@ static void inline_registeremergencyhandlers(void) {
 #else 
     static const signalhandler_t siglist[] = {
         { SIGWINCH, inline_signalwinchhandler, SA_SIGINFO | SA_RESTART },
-        { SIGTERM,  inline_signalgracefulhandler, SA_SIGINFO | SA_RESTART },
-        { SIGQUIT,  inline_signalgracefulhandler, SA_SIGINFO | SA_RESTART },
-        { SIGHUP,   inline_signalgracefulhandler, SA_SIGINFO | SA_RESTART },
+        { SIGTERM,  inline_signalgracefulhandler, SA_SIGINFO },
+        { SIGQUIT,  inline_signalgracefulhandler, SA_SIGINFO },
+        { SIGHUP,   inline_signalgracefulhandler, SA_SIGINFO },
         { SIGSEGV,  inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
         { SIGABRT,  inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
         { SIGBUS,   inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
