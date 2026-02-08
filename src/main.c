@@ -1,4 +1,4 @@
-/** @file main.h
+/** @file main.c
  *  @author T J Atherton
  *
  *  @brief Example terminal application illustrating inline's key features.  */
@@ -77,7 +77,6 @@ static bool syntaxhighlighterfn(const char *utf8, void *ref, size_t offset, inli
     (void)ref; // unused
 
     if (utf8[offset] == '"') { // Match strings
-        size_t start = offset;
         offset++;
         for (; utf8[offset] != '\0'; offset++) {
             if (utf8[offset] == '"' && utf8[offset - 1] != '\\') { // Skip escaped \"
@@ -90,7 +89,6 @@ static bool syntaxhighlighterfn(const char *utf8, void *ref, size_t offset, inli
     }
 
     if (isdigit((unsigned char)utf8[offset])) { // Match integers
-        size_t start = offset;
         for (offset++; utf8[offset] && isdigit((unsigned char)utf8[offset]); offset++);
         inline_set_colorspan(out, offset, 3);
         return true;
