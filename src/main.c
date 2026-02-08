@@ -152,7 +152,7 @@ int main(void) {
     inline_sethistorylength(edit, 5); // Bound history
     inline_autocomplete(edit, completefn, NULL); // Configure editor with autocomplete
     inline_syntaxcolor(edit, syntaxhighlighterfn, NULL); // Configure editor with syntax highlighter
-    inline_setpalette(edit, (int) sizeof(palette)/sizeof(int), palette);
+    inline_setpalette(edit, (int) sizeof(palette)/sizeof(palette[0]), palette);
     inline_multiline(edit, multilinefn, NULL, "~ "); // Configure editor for multiline editing
 
     for (bool quit=false; !quit;) {
@@ -166,9 +166,7 @@ int main(void) {
                 printf("'\n");
             }
             free(line); // We own line, so we must free it. 
-        } else {
-            printf("inline_readline returned NULL.\n");
-        }
+        } else quit=true;
     }
 
     inline_free(edit); // All attached data is free'd. 
