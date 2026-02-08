@@ -316,6 +316,7 @@ static termstate_t termstate_out;
 static int resize_pending = 0;
 static bool consolehandler_installed = false; 
 static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
+    (void) ctrl;
     if (termstate_set) {
         HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
         HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -989,7 +990,7 @@ static bool inline_atend(inline_editor *edit) {
 }
 
 /** Adds a suggestion to the suggestion list */
-static void inline_addsuggestion(inline_editor *edit, char *s) {
+static void inline_addsuggestion(inline_editor *edit, const char *s) {
     inline_stringlist_add(&edit->suggestions, s);
 }
 
@@ -1006,7 +1007,7 @@ static void inline_generatesuggestions(inline_editor *edit) {
 
     if (edit->buffer && inline_atend(edit)) {
         size_t index = 0;
-        char *s;
+        const char *s;
         while ((s=edit->complete_fn(edit->buffer, edit->complete_ref, &index))!=0) {
             inline_addsuggestion(edit, s);
         }
@@ -1516,7 +1517,7 @@ static int inline_translatekeypress(const KEY_EVENT_RECORD *k, unsigned char out
     // Ctrl + char
     if (mods & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
         if (vk >= 'A' && vk <= 'Z') {
-            out[0] = (vk - 'A') + 1;
+            out[0] = (unsigned char) (vk - 'A') + 1;
             return 1;
         }
     }
@@ -1526,8 +1527,8 @@ static int inline_translatekeypress(const KEY_EVENT_RECORD *k, unsigned char out
             out[0] = (unsigned char)wc; 
             return 1;
         } else if (wc < 0x800) {
-            out[0] = 0xC0 | (wc >> 6);
-            out[1] = 0x80 | (wc & 0x3F);
+            out[0] = (unsigned char)(0xC0 | ((unsigned int)wc >> 6));
+            out[1] = (unsigned char)(0x80 | ((unsigned int)wc & 0x3F));
             return 2;
         } else if (wc < 0xD800 || wc > 0xDFFF) {    
             out[0] = 0xE0 | (wc >> 12);
@@ -1542,10 +1543,10 @@ static int inline_translatekeypress(const KEY_EVENT_RECORD *k, unsigned char out
             WCHAR wc2 = next.uChar.UnicodeChar;
             if (wc2 >= 0xDC00 && wc2 <= 0xDFFF) {
                 uint32_t cp = 0x10000 + (((wc - 0xD800) << 10) | (wc2 - 0xDC00));
-                out[0] = 0xF0 | (cp >> 18);
-                out[1] = 0x80 | ((cp >> 12) & 0x3F);
-                out[2] = 0x80 | ((cp >> 6) & 0x3F);
-                out[3] = 0x80 | (cp & 0x3F);
+                out[0] = (unsigned char) (0xF0 | (cp >> 18));
+                out[1] = (unsigned char) (0x80 | ((cp >> 12) & 0x3F));
+                out[2] = (unsigned char) (0x80 | ((cp >> 6) & 0x3F));
+                out[3] = (unsigned char) (0x80 | (cp & 0x3F));
                 return 4;
             }
         }
@@ -1718,6 +1719,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
 
 /** Obtain a keypress event */
 static bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
+    (void) edit; 
     rawinput_t raw;
     if (!inline_readraw(&raw)) return false;
     inline_decode(&raw, out);
@@ -1735,7 +1737,7 @@ static inline void inline_setcursorposn(inline_editor *edit, int new_posn) {
     if (edit->cursor_posn == new_posn) return; 
     edit->refresh = true;
 
-    int old_row, new_row;
+    int old_row;
     inline_cursorposn(edit, &old_row, NULL);
 
     edit->cursor_posn = new_posn;
@@ -1923,10 +1925,10 @@ static void inline_historykey(inline_editor *edit, int delta) {
 
 /** Transpose two graphemes */
 static void inline_transpose(inline_editor *edit) {
-    size_t n = edit->grapheme_count, cur = edit->cursor_posn;
+    int n = edit->grapheme_count, cur = edit->cursor_posn;
     if (n < 2 || cur == 0) return;
 
-    size_t a = (cur >= n ? n-2 : cur-1), b = a + 1; // The two graphemes to swap
+    int a = (cur >= n ? n-2 : cur-1), b = a + 1; // The two graphemes to swap
     size_t a_start, a_end, b_start, b_end; // Their byte bounds
     inline_graphemerange(edit, a, &a_start, &a_end);
     inline_graphemerange(edit, b, &b_start, &b_end);
@@ -2038,7 +2040,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
         case KEY_CHARACTER: 
             if (!inline_insert(edit, (char *) key->c, key->nbytes)) return false;
             break;
-        default:
+        case KEY_UNKNOWN:
             break;
     }
 
