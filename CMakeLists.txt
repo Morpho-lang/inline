@@ -6,5 +6,4 @@ project(inline
 )
 
 add_subdirectory(src)
-add_subdirectory(examples/basic)
-add_subdirectory(examples/minimal)
+add_subdirectory(examples)

@@ -1405,6 +1405,8 @@ static void inline_redraw(inline_editor *edit) {
   
 /** API function to print a syntax colored string */
 void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
+    inline_setutf8();
+
     if (!edit || !string) return;
     size_t len = strlen(string);
 
@@ -1423,10 +1425,13 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
             return;
         }
 
-        if (span.color<edit->palette_count && span.color>=0) inline_emitcolor(edit->palette[span.color]);
-        if (string[offset] == '\t') {
-            for (int i=0; i<INLINE_TAB_WIDTH; i++) inline_emit(" ");
-        } else write(STDOUT_FILENO, string + offset, (unsigned int) (span.byte_end - offset));
+        if (span.color < edit->palette_count && span.color >= 0) inline_emitcolor(edit->palette[span.color]);
+        for (size_t i = offset; i < span.byte_end; i++) {
+            if (string[i] == '\t') {
+                for (int t = 0; t < INLINE_TAB_WIDTH; t++) inline_emit(" ");
+            } else write(STDOUT_FILENO, &string[i], 1);
+        }
+
         inline_emit(TERM_RESETFOREGROUND);
 
         offset = span.byte_end;
