@@ -37,6 +37,8 @@
 
 #define INLINE_TAB_WIDTH 2
 
+//#define INLINE_NO_SIGNALS // <- Uncomment to disable installation of signals
+
 #ifdef _WIN32
 typedef DWORD termstate_t;
 #else 
@@ -420,6 +422,7 @@ static void inline_registeremergencyhandlers(void) {
 #ifdef _WIN32 
     if (SetConsoleCtrlHandler(inline_consolehandler, TRUE)) consolehandler_installed=true; 
 #else 
+    #ifndef INLINE_NO_SIGNALS
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sigemptyset(&sa.sa_mask);
@@ -437,6 +440,7 @@ static void inline_registeremergencyhandlers(void) {
         sa.sa_flags     = siglist[i].flags;
         if (sigaction(siglist[i].sig, &sa, NULL) == 0) siglist[i].installed=true;
     }
+    #endif 
 #endif
 }
 
@@ -448,6 +452,7 @@ static void inline_restoreemergencyhandlers(void) {
     if (consolehandler_installed) 
     if (SetConsoleCtrlHandler(inline_consolehandler, FALSE)) consolehandler_installed = false; 
 #else 
+    #ifndef INLINE_NO_SIGNALS
     for (size_t i = 0; i < sizeof(siglist)/sizeof(siglist[0]); i++) {
         if (!siglist[i].has_previous || !siglist[i].installed) continue;
         sigaction(siglist[i].sig, &siglist[i].previous, NULL); // Restore previous handler
@@ -456,6 +461,7 @@ static void inline_restoreemergencyhandlers(void) {
         siglist[i].has_previous = false;
         memset(&siglist[i].previous, 0, sizeof(siglist[i].previous));
     }
+    #endif 
 #endif
 }
 

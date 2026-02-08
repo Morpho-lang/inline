@@ -45,6 +45,32 @@ Inline has been designed to provide these features while remaining small (~2000 
 
 Inline is not intended to be a full replacement for traditional libraries like readline. It does not implement advanced features such as vi-style editing modes, history expansion, or complete Unicode grapheme width correctness across all terminals. Instead, inline focuses on correctness for common modern terminal usage, while remaining lightweight and easy to embed.
 
+## Key bindings
+
+The editor follows common readline-style conventions where possible, with full UTF-8 support and visual selection.
+
+| Category   | Keystroke                     | Action                                            |
+| ---------- | ----------------------------- | ------------------------------------------------- |
+| Cursor     | `←` / `→`                     | Move cursor left / right by one grapheme          |
+|            | `Ctrl+B` / `Ctrl+F`           | Move cursor left / right                          |
+|            | `Home` / `End`                | Move cursor to beginning / end of line            |
+|            | `Ctrl+A` / `Ctrl+E`           | Move cursor to beginning / end of line            |
+|            | `PgUp` / `PgDn`               | Move to start/end of editing window               |
+| Editing    | `Backspace`                   | Delete grapheme before cursor                     |
+|            | `Delete` / `Ctrl+D`           | Delete grapheme at cursor                         |
+|            | `Ctrl+K`                      | Delete from cursor to end of line                 |
+|            | `Ctrl+U`                      | Delete from beginning of line to cursor           |
+|            | `Enter`                       | Accept line (or insert newline in multiline mode) |
+| Selection  | `Shift+←` / `Shift+→`         | Extend selection left / right                     |
+|            | `Ctrl+C`                      | Copy selection                                    |
+|            | `Ctrl+X`                      | Cut selection                                     |
+|            | `Ctrl+V`                      | Paste clipboard contents                          |
+| History    | `↑` / `↓`                     | Previous / next history entry                     |
+|            | `Ctrl+P` / `Ctrl+N`           | Previous / next history entry                     |
+| Completion | `Tab` / `Shift+Tab`           | Cycle through completion suggestions              |
+|            | `→` (when suggestion visible) | Accept current suggestion                         |
+| Misc       | `Ctrl+L`                      | Clear editing buffer                              |
+
 ## Other line editors
 
 Inline is one of many possible choices for a line editor, each of which may be useful in different applications. A brief comparison is shown below: 
