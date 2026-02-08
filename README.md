@@ -52,7 +52,7 @@ The editor follows common readline-style conventions where possible, with full U
 | Category   | Keystroke                     | Action                                            |
 | ---------- | ----------------------------- | ------------------------------------------------- |
 | Cursor     | `←` / `→`                     | Move cursor left / right by one grapheme          |
-|            | `Ctrl+B` / `Ctrl+F`           | Move cursor left / right                          |
+|            | `Ctrl+B` / `Ctrl+F`           | Move cursor left / right by one grapheme          |
 |            | `Home` / `End`                | Move cursor to beginning / end of line            |
 |            | `Ctrl+A` / `Ctrl+E`           | Move cursor to beginning / end of line            |
 |            | `PgUp` / `PgDn`               | Move to start/end of editing window               |
