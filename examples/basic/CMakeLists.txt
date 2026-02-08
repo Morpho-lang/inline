@@ -1,8 +1,8 @@
 # Test executable
-add_executable(test_inline
+add_executable(basic_example
     main.c
 )
 
-target_link_libraries(test_inline
+target_link_libraries(basic_example
     PRIVATE inline
 )
