@@ -1,12 +1,11 @@
 /** @file inline.c
  *  @author T J Atherton
  *
- *  @brief A simple UTF8 aware line editor with history, completion, multiline editing and syntax highlighting */
+ *  @brief A simple grapheme aware line editor with history, completion, multiline editing and syntax highlighting */
 
 #include "inline.h"
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
 #include <ctype.h>
 

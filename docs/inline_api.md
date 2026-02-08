@@ -163,7 +163,7 @@ Colors are encoded as follows:
 * The value of -1 indicates "use the default text color". 
 * Values 0-7 are the classic ANSI terminal colors. inline.h supplies macros for these: INLINE_BLACK, INLINE_RED, INLINE_GREEN, INLINE_YELLOW, INLINE_BLUE, INLINE_MAGENTA, INLINE_CYAN, INLINE_WHITE.
 * Values 8-255 are color codes for 256 color terminals. 256 color terminals use values 0-7 the same as the ANSI terminals.
-* 24-bit RGB colors are encoded as 0x01RRGGBB. Note that the high byte is set to 1 to enable inline to distinguish purely blue shades from 256 color mode codes.
+* 24-bit RGB colors are encoded as 0x01RRGGBB. Note that the high byte is set to 1 to enable inline to distinguish purely blue shades from 256 color mode codes. A macro INLINE_RGB(r,g,b) is provided in inline.h to assemble these from r,g,b hex values. 
 
 Inline does not validate color values; invalid values result in undefined terminal output. Not all terminals provide 24-bit color or even 256 color modes and inline does not attempt to determine the color capabilities of the terminal automatically at runtime. It is therefore recommended that color settings be provided as a user-configurable option in the host application. 
 
@@ -217,6 +217,6 @@ A language REPL could use this, for example, to display source code with error m
 
 ## Crash conditions and signal handling
 
-When `inline_readline` enters raw mode it also installs “emergency” handlers so the terminal is restored if the process is interrupted. On POSIX this uses the signal mechanism for SIGTERM, SIGQUIT, SIGHUP (graceful termination), SIGSEGV, SIGABRT, SIGBUS, SIGFPE (crash signals), and SIGWINCH (resize); on Windows it uses `SetConsoleCtrlHandler`. The handlers attempt to restore the saved terminal state, then chain to any previous handler when appropriate, and finally re-raise/reset to the default disposition so the process terminates normally. A small `atexit` restore is also registered as a last resort. Signal handlers are removed when raw mode is exited. 
+When `inline_readline` enters raw mode it also installs “emergency” handlers so the terminal is restored if the process is interrupted. On POSIX this uses the signal mechanism for SIGTERM, SIGQUIT, SIGHUP (graceful termination), SIGSEGV, SIGABRT, SIGBUS, SIGFPE (crash signals), and SIGWINCH (resize); on Windows it uses `SetConsoleCtrlHandler`. The handlers attempt to restore the saved terminal state, then chain to any previous handler when appropriate, and finally re-raise/reset to the default disposition so the process terminates normally. A small `atexit` restore is also registered as a last resort. Signal handlers are removed when raw mode is exited.
 
 If you embed inline into an application that already owns signal handling (or must not install/replace handlers), compile with `INLINE_NO_SIGNALS` defined to disable this feature. When `INLINE_NO_SIGNALS` is defined, inline will still restore the terminal on the normal return path, but it will not install signal/console handlers—so your application is responsible for restoring terminal state on abnormal termination.

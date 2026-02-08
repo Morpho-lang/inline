@@ -1,12 +1,13 @@
 /** @file inline.h
  *  @author T J Atherton
  *
- *  @brief A simple UTF8 aware line editor with history, completion, multiline editing and syntax highlighting */
+ *  @brief A simple grapheme aware line editor with history, completion, multiline editing and syntax highlighting */
 
 #ifndef INLINE_H
 #define INLINE_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 #define INLINE_VERSION_MAJOR 0
@@ -152,6 +153,13 @@ void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref)
 #define INLINE_MAGENTA      5
 #define INLINE_CYAN         6
 #define INLINE_WHITE        7
+
+/** Macro for RGB values */
+#define INLINE_COLOR_RGB    0x01000000u
+
+#define INLINE_RGB(r, g, b) \
+  (INLINE_COLOR_RGB | (((uint32_t)(r) & 0xffu) << 16) | \
+  (((uint32_t)(g) & 0xffu) << 8)  | ((uint32_t)(b) & 0xffu))
 
 /** @brief Set the color palette used for syntax highlighting.
  *
