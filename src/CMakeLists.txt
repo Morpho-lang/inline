@@ -22,3 +22,16 @@ target_include_directories(inline
 target_compile_options(inline PRIVATE
     -Wall
 )
+
+# Install products
+install(TARGETS inline
+    EXPORT inlineTargets
+    ARCHIVE DESTINATION lib        
+    LIBRARY DESTINATION lib        
+    RUNTIME DESTINATION bin        
+)
+
+# Headers
+install(FILES inline.h
+    DESTINATION include/inline
+)
