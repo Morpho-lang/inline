@@ -1,3 +1,4 @@
+# Build inline library
 
 if (MSVC)
     add_compile_options(/wd5045) # QSpectre warnings
@@ -20,13 +21,4 @@ target_include_directories(inline
 # Enable warnings for the library
 target_compile_options(inline PRIVATE
     -Wall
-)
-
-# Test executable
-add_executable(test_inline
-    main.c
-)
-
-target_link_libraries(test_inline
-    PRIVATE inline
 )
