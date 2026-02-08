@@ -171,9 +171,9 @@ Inline does not validate color values; invalid values result in undefined termin
 
 Multiline editing is enabled by calling a configuration function:
 
-    void inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
+    bool inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
 
-You must supply a callback that is used to decide whether to enter multiline mode given particular input, and an opaque reference pointer `ref` that will be supplied to the callback, which can be `NULL`. As for other inline API functions, inline simply stores this reference and does not attempt to inspect or modify its contents. You may also specify a special prompt `continuation_prompt` that will be displayed only on continuation lines, or supply `NULL` to use the default prompt. Inline copies this prompt immediately and does not store the string you supply.
+You must supply a callback that is used to decide whether to enter multiline mode given particular input, and an opaque reference pointer `ref` that will be supplied to the callback, which can be `NULL`. As for other inline API functions, inline simply stores this reference and does not attempt to inspect or modify its contents. You may also specify a special prompt `continuation_prompt` that will be displayed only on continuation lines, or supply `NULL` to use the default prompt. Inline copies this prompt immediately and does not store the string you supply. `inline_multiline` returns true if the callback and prompt are set successfully. 
 
 The callback has the following signature: 
 
@@ -181,7 +181,7 @@ The callback has the following signature:
 
 When inline wishes to decide whether to enter multiline editing mode---typically this might happen when the user presses the Return or Enter key---it calls your callback with the complete contents of the input buffer in `utf8` and the reference pointer you supplied at configuration. 
 
-The callback should inspect the text and return `true` to enter multiline mode or `false` otherwise. If the callback returns `true`, inline inserts a newline into the input buffer and continues editing on a new line. When the callback later returns `false`, multiline mode ends and  `inline_readline` returns the complete buffer (including embedded newlines).
+The callback should inspect the text and return `true` to enter multiline mode or `false` otherwise. If the callback returns `true`, inline inserts a newline into the input buffer and continues editing on a new line. When the callback later returns `false`, multiline mode ends and  `inline_readline` returns thinline_multilinee complete buffer (including embedded newlines).
 
 The callback should be fast and side-effect free; it may be called on every Enter press. Hence, the decision is usually made heuristically rather than by detailed parsing. This simple example checks for an unmatched opening parenthesis for example, as might be useful in implementing a simple calculator or LISP interpreter:
 

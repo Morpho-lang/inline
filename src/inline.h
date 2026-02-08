@@ -48,7 +48,7 @@ typedef struct inline_editor inline_editor;
  *  @note The callback owns the returned string; it may therefore 
  *        return pointers to static strings or internal buffers. 
  *        The editor copies the suggestion immediately. */
-typedef char *(*inline_completefn) (const char *utf8, void *ref, size_t *index);
+typedef const char *(*inline_completefn) (const char *utf8, void *ref, size_t *index);
 
 /* -----------------------
  * Syntax coloring

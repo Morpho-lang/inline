@@ -232,8 +232,12 @@ bool inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, con
     edit->multiline_fn = fn;
     edit->multiline_ref = ref;
 
-    free(edit->continuation_prompt);
-    return edit->continuation_prompt = inline_strdup(continuation_prompt ? continuation_prompt : edit->prompt);
+    char *p = inline_strdup(continuation_prompt ? continuation_prompt : edit->prompt);
+    if (p) {
+        free(edit->continuation_prompt);
+        edit->continuation_prompt = p;
+    }
+    return (p!=NULL);
 }
 
 /** API function to use a custom grapheme splitter */
@@ -547,8 +551,8 @@ static void inline_disablerawmode(inline_editor *edit) {
  * ********************************************************************** */
 
 /** Min and max */
-static inline int imin(int a, int b) { return a < b ? a : b; }
-static inline int imax(int a, int b) { return a > b ? a : b; }
+#define imin(a,b) ( a<b ? a : b)
+#define imax(a,b) ( a>b ? a : b)
 
 /** Duplicate a string */
 static char *inline_strdup(const char *s) {
@@ -1273,6 +1277,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     size_t off = edit->graphemes[g_start];
 
     inline_syntaxcolorfn syntax_fn = (edit->palette_count>0 ? edit->syntax_fn : NULL);
+    inline_widthfn width_fn = (edit->width_fn ? edit->width_fn : inline_graphemewidth);
 
     // Render syntax-colored, clipped graphemes
     while (g < g_end && off < byte_end) {
@@ -1319,7 +1324,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
             if (edit->buffer[gs] == '\t') {
                 for (int i=0; i<INLINE_TAB_WIDTH; i++) inline_emit(" ");
             } else write(STDOUT_FILENO, edit->buffer + gs, (unsigned int) (ge - gs));
-            rendered_width += inline_graphemewidth(edit->buffer + gs, ge - gs);
+            rendered_width += width_fn(edit->buffer + gs, ge - gs);
         }
 
         off = span.byte_end;
@@ -1881,7 +1886,7 @@ static void inline_cutline(inline_editor *edit, bool before) {
     size_t b_line = edit->lines[row + (before ? 0 : 1)]; // line break position before or after
     size_t b_cursor = edit->graphemes[edit->cursor_posn]; // Cursor position
 
-    size_t b_start = min(b_line, b_cursor), b_end = max(b_line, b_cursor);
+    size_t b_start = imin(b_line, b_cursor), b_end = imax(b_line, b_cursor);
     if (!before && b_end>0 && edit->buffer[b_end-1]=='\n') b_end--; // Don't include newline
     if (b_start==b_end) return; // Nothing to copy
 
