@@ -14,7 +14,7 @@ static const char *words[] = {
      NULL };
 
 /** Autocomplete function */
-char *completefn(const char *buffer, void *ref, size_t *index) {
+const char *completefn(const char *buffer, void *ref, size_t *index) {
     const char *end = buffer + strlen(buffer);
     const char *start = end;
 
@@ -123,13 +123,13 @@ int main(void) {
 
     printf("Editor created successfully.\n");
 
-    for (;;) {
+    for (bool quit=false; !quit;) {
         char *line = inline_readline(edit);
         if (line) {
             printf("You entered: '"); 
             inline_displaywithsyntaxcoloring(edit, line);
             printf("'\n");
-            if (strcmp(line, "quit")==0) break;
+            if (strcmp(line, "quit")==0) quit=true;
             free(line);
         } else {
             printf("inline_readline returned NULL.\n");
