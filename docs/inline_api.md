@@ -214,3 +214,9 @@ To display a string using inline’s syntax highlighting mechanism without enabl
 This function applies the same syntax highlighting callback configuration used by the interactive editor, but does not read input or modify editor state. It simply renders the supplied string to the terminal, with no newline appended, and resets the terminal state after rendering.
 
 A language REPL could use this, for example, to display source code with error messages or the ability to list sections of code in a debugger. 
+
+## Crash conditions and signal handling
+
+When `inline_readline` enters raw mode it also installs “emergency” handlers so the terminal is restored if the process is interrupted. On POSIX this uses the signal mechanism for SIGTERM, SIGQUIT, SIGHUP (graceful termination), SIGSEGV, SIGABRT, SIGBUS, SIGFPE (crash signals), and SIGWINCH (resize); on Windows it uses `SetConsoleCtrlHandler`. The handlers attempt to restore the saved terminal state, then chain to any previous handler when appropriate, and finally re-raise/reset to the default disposition so the process terminates normally. A small `atexit` restore is also registered as a last resort. Signal handlers are removed when raw mode is exited. 
+
+If you embed inline into an application that already owns signal handling (or must not install/replace handlers), compile with `INLINE_NO_SIGNALS` defined to disable this feature. When `INLINE_NO_SIGNALS` is defined, inline will still restore the terminal on the normal return path, but it will not install signal/console handlers—so your application is responsible for restoring terminal state on abnormal termination.
