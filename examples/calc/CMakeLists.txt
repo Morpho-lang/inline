@@ -6,3 +6,7 @@ add_executable(calc
 target_link_libraries(calc
     PRIVATE inline
 )
+
+install(TARGETS calc
+    RUNTIME DESTINATION bin
+)

@@ -6,3 +6,7 @@ add_executable(basic_example
 target_link_libraries(basic_example
     PRIVATE inline
 )
+
+install(TARGETS basic_example
+    RUNTIME DESTINATION bin
+)

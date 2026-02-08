@@ -24,6 +24,11 @@ Inline is intentionally callback-driven. The editor owns editing, rendering, and
 
 Inline is cross platform: both POSIX-like operating systems (macOS, linux) and Windows are supported. There are no dependencies beyond the C standard library and either standard windows or POSIX libraries. Inline is provided under the [MIT license](LICENSE). 
 
+To build, clone this repository and navigate to it, then use cmake: 
+
+    cmake -S . -B build
+    cmake --build build
+
 [*] A "grapheme" is a sequence of Unicode codepoints that correspond approximately to what a user perceives as a single character or glyph on the display. A full definition is in Unicode Standard Annex #29.
 
 ## Who is Inline for?
