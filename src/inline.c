@@ -1092,6 +1092,8 @@ static void inline_reset(inline_editor *edit) {
     inline_endhistorybrowsing(edit);
     inline_stringlist_clear(&edit->suggestions);
     edit->rawmode_enabled = false;
+    edit->term_cursor_row = 0; 
+    edit->term_lines_drawn = 0;
 }
 
 /* ----------------------------------------
@@ -1405,8 +1407,6 @@ static void inline_redraw(inline_editor *edit) {
   
 /** API function to print a syntax colored string */
 void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
-    inline_setutf8();
-
     if (!edit || !string) return;
     size_t len = strlen(string);
 
