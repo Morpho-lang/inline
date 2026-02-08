@@ -299,69 +299,158 @@ static void inline_updateterminalwidth(inline_editor *edit) {
 /* ----------------------------------------
  * Handle crashes
  * ---------------------------------------- */
- 
-/** Exit handler called on crashes */
-static void inline_emergencyrestore(void) {
+
+static void inline_atexitrestore(void) {
     if (inline_lasteditor) inline_disablerawmode(inline_lasteditor);
 }
 
 #ifdef _WIN32
-static int resize_pending = 0; // Unused
+static bool termstate_set = false;
+static termstate_t termstate_in; 
+static termstate_t termstate_out;
+static int resize_pending = 0;
+static bool consolehandler_installed = false; 
 static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
-    inline_emergencyrestore(); // Restore on any console event
+    if (termstate_set) {
+        HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        SetConsoleMode(hIn,  termstate_in);
+        SetConsoleMode(hOut, termstate_out);
+    }
     return FALSE; // Allow default behavior
 }
 #else 
+termstate_t termstate;
+static volatile sig_atomic_t termstate_set = 0;
 static volatile sig_atomic_t resize_pending = 0;
-static void inline_signalwinchhandler(int sig, siginfo_t *info, void *ucontext) {
-    resize_pending=1;
-}
-static void inline_signalgracefulhandler(int sig, siginfo_t *info, void *ucontext) {
-    inline_emergencyrestore();
-    _Exit(128 + sig); 
-}
-static void inline_signalcrashhandler(int sig, siginfo_t *info, void *ucontext) {
-    inline_emergencyrestore();
-    raise(sig);
-    _Exit(128 + sig); 
-}
 typedef struct {
     int sig;
     void (*handler)(int, siginfo_t *, void *);
     int flags;
-} signalhandler_t;
+    bool has_previous;
+    bool installed;
+    struct sigaction previous;
+} signalhandlerstate_t;
+
+signalhandlerstate_t *inline_findsighandler(int sig);
+
+static bool inline_callprevious(int sig, siginfo_t *info, void *ucontext) {
+    signalhandlerstate_t *handler = inline_findsighandler(sig);
+    if (!handler || !handler->has_previous || !handler->installed ||
+        handler->previous.sa_handler == SIG_IGN || handler->previous.sa_handler == SIG_DFL) return false;
+
+#ifdef SA_SIGINFO
+    if (handler->previous.sa_flags & SA_SIGINFO) {
+        if (handler->previous.sa_sigaction) handler->previous.sa_sigaction(sig, info, ucontext);
+        return true;
+    }
 #endif
+    if (handler->previous.sa_handler) { 
+        handler->previous.sa_handler(sig); 
+        return true; 
+    }
+    return false; 
+}
+
+static void inline_restoredisposition(int sig) {
+    signalhandlerstate_t *handler = inline_findsighandler(sig);
+    
+    if (handler && handler->has_previous && handler->previous.sa_handler != SIG_IGN) {
+        sigaction(sig, &handler->previous, NULL);
+    } else {
+        struct sigaction restore; 
+        memset(&restore, 0, sizeof(restore));
+        restore.sa_handler = SIG_DFL;
+        sigemptyset(&restore.sa_mask);
+        sigaction(sig, &restore, NULL);
+    }
+}
+
+static void inline_emergencyrestore(void) {
+    if (termstate_set) tcsetattr(STDIN_FILENO, TCSAFLUSH, &termstate);
+}
+static void inline_signalwinchhandler(int sig, siginfo_t *info, void *ucontext) {
+    resize_pending=1;
+    inline_callprevious(sig, info, ucontext);
+}
+static void inline_signalgracefulhandler(int sig, siginfo_t *info, void *ucontext) {
+    inline_emergencyrestore();
+    if (inline_callprevious(sig, info, ucontext)) return; // If the previous signal handler was called and returned, we do too
+    inline_restoredisposition(sig);
+    kill(getpid(), sig);
+    _Exit(128 + sig); 
+}
+static void inline_signalcrashhandler(int sig, siginfo_t *info, void *ucontext) {
+    inline_emergencyrestore();
+    inline_restoredisposition(sig);
+    kill(getpid(), sig);
+    _Exit(128 + sig); 
+}
+
+static signalhandlerstate_t siglist[] = {
+    { SIGWINCH, inline_signalwinchhandler,    SA_SIGINFO | SA_RESTART, false, false, {0} },
+    { SIGTERM,  inline_signalgracefulhandler, SA_SIGINFO,              false, false, {0} },
+    { SIGQUIT,  inline_signalgracefulhandler, SA_SIGINFO,              false, false, {0} },
+    { SIGHUP,   inline_signalgracefulhandler, SA_SIGINFO,              false, false, {0} },
+    { SIGSEGV,  inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
+    { SIGABRT,  inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
+    { SIGBUS,   inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
+    { SIGFPE,   inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
+};
+
+signalhandlerstate_t *inline_findsighandler(int sig) {
+    for (size_t i = 0; i < sizeof(siglist)/sizeof(siglist[0]); i++) if (siglist[i].sig == sig) return &siglist[i];
+    return NULL;
+}
+#endif
+
+static int install_count = 0; 
 
 /** Register emergency exit and signal handlers */
 static void inline_registeremergencyhandlers(void) {
-    static bool registered = false; 
-    if (registered) return; 
-    registered=true;
+    install_count++;
+    if (install_count>1) return; 
 
-    atexit(inline_emergencyrestore);
+    static bool atexit_registered=false;
+    if (!atexit_registered) { atexit(inline_atexitrestore); atexit_registered=true; }
 #ifdef _WIN32 
-    SetConsoleCtrlHandler(inline_consolehandler, TRUE);
+    if (SetConsoleCtrlHandler(inline_consolehandler, TRUE)) consolehandler_installed=true; 
 #else 
-    static const signalhandler_t siglist[] = {
-        { SIGWINCH, inline_signalwinchhandler, SA_SIGINFO | SA_RESTART },
-        { SIGTERM,  inline_signalgracefulhandler, SA_SIGINFO },
-        { SIGQUIT,  inline_signalgracefulhandler, SA_SIGINFO },
-        { SIGHUP,   inline_signalgracefulhandler, SA_SIGINFO },
-        { SIGSEGV,  inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
-        { SIGABRT,  inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
-        { SIGBUS,   inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
-        { SIGILL,   inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
-        { SIGFPE,   inline_signalcrashhandler, SA_SIGINFO | SA_RESETHAND },
-    };
-
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sigemptyset(&sa.sa_mask);
 
     for (size_t i = 0; i < sizeof(siglist)/sizeof(siglist[0]); i++) {
+        siglist[i].has_previous = false;
+        siglist[i].installed    = false;
+
+        if (sigaction(siglist[i].sig, NULL, &siglist[i].previous) == 0) { // Get previous action
+            if (siglist[i].previous.sa_handler == SIG_IGN) continue; // Skip ignored signals
+            siglist[i].has_previous = true;
+        } else memset(&siglist[i].previous, 0, sizeof(siglist[i].previous)); // Wipe
+
         sa.sa_sigaction = siglist[i].handler;
         sa.sa_flags     = siglist[i].flags;
-        sigaction(siglist[i].sig, &sa, NULL);
+        if (sigaction(siglist[i].sig, &sa, NULL) == 0) siglist[i].installed=true;
+    }
+#endif
+}
+
+/** Restore emergency handlers previously installed */
+static void inline_restoreemergencyhandlers(void) {
+    if (install_count>0) install_count--;
+    if (install_count>0) return; 
+#ifdef _WIN32
+    if (consolehandler_installed) 
+    if (SetConsoleCtrlHandler(inline_consolehandler, FALSE)) consolehandler_installed = false; 
+#else 
+    for (size_t i = 0; i < sizeof(siglist)/sizeof(siglist[0]); i++) {
+        if (!siglist[i].has_previous || !siglist[i].installed) continue;
+        sigaction(siglist[i].sig, &siglist[i].previous, NULL); // Restore previous handler
+
+        siglist[i].installed = false; // Wipe 
+        siglist[i].has_previous = false;
+        memset(&siglist[i].previous, 0, sizeof(siglist[i].previous));
     }
 #endif
 }
@@ -395,6 +484,12 @@ static bool inline_enablerawmode(inline_editor *edit) {
     if (!GetConsoleMode(hOut, &edit->termstate_out)) return false;
     DWORD newOut = edit->termstate_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     if (!SetConsoleMode(hOut, newOut)) return false; // Enable VT output
+
+    if (!termstate_set) { 
+        termstate_in = edit->termstate_in; 
+        termstate_out = edit->termstate_out;
+        termstate_set = true;
+    }
 #else 
     if (tcgetattr(STDIN_FILENO, &edit->termstate) == -1) return false;
 
@@ -417,6 +512,10 @@ static bool inline_enablerawmode(inline_editor *edit) {
     raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) return false;
+    if (!termstate_set) { 
+        termstate = edit->termstate; 
+        termstate_set = true;
+    }
 #endif
     inline_lasteditor = edit; // Record last editor
     inline_registeremergencyhandlers();
@@ -440,6 +539,7 @@ static void inline_disablerawmode(inline_editor *edit) {
 
     fputs("\r", stdout); // Print a carriage return to ensure we're back on the left hand side
     edit->rawmode_enabled = false;
+    inline_restoreemergencyhandlers();
 }
 
 /* **********************************************************************
