@@ -1,4 +1,4 @@
-# in|line 
+![Inline](docs/inlinelogo.png#gh-light-mode-only)![Inline](docs/inlinelogo.png#gh-dark-mode-only)
 
 Inline - a small, grapheme-aware[*] line editor for embedding in other applications. 
 
