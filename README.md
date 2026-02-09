@@ -6,20 +6,22 @@ At the core of many interactive terminal applications is a Read-Evaluate-Print L
 
 A minimal application using inline is as simple as: 
 
-    #include "inline.h" 
+```c
+#include "inline.h" 
 
-    int main(void) {
-        inline_editor *edit = inline_new(">"); // Create an editor and set the prompt
-        for (bool done=false; !done; ) {
-            char *line = inline_readline(edit); // Read a line of text
-            if (!line) break; 
-            if (line[0]=='q') done=true; // Quit
-            printf("%s\n", line);
-            free(line); // You own the string returned from inline_readline 
-        } 
-        
-        inline_free(edit); // Free the editor and attached data
-    }
+int main(void) {
+    inline_editor *edit = inline_new(">"); // Create an editor and set the prompt
+    for (bool done=false; !done; ) {
+        char *line = inline_readline(edit); // Read a line of text
+        if (!line) break; 
+        if (line[0]=='q') done=true; // Quit
+        printf("%s\n", line);
+        free(line); // You own the string returned from inline_readline 
+    } 
+    
+    inline_free(edit); // Free the editor and attached data
+}
+```
 
 Inline is intentionally callback-driven. The editor owns editing, rendering, and terminal interaction; the host application owns the semantics of the input. Features such as syntax highlighting and multiline editing are configured by supplying callback functions. Core components of inline's grapheme processing engine can be replaced. Further details are in the [API reference](docs/inline_api.md) supplied in this repository. 
 
