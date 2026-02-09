@@ -1,4 +1,4 @@
-# in|line 
+![Inline](inlinelogo.png#gh-light-mode-only)![Inline](inlinelogo-dark.png#gh-dark-mode-only)
 
 Inline is a small, grapheme-aware line editor designed for embedding in other applications. It provides a modern text model and features such as syntax highlighting, history, autocomplete, copy/paste, and multiline editing, while remaining lightweight and portable.
 

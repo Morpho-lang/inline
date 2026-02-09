@@ -1,5 +1,5 @@
 /** @file calc.c
- *  @brief Tiny colorful calculator demo for in|line.
+ *  @brief Tiny colorful calculator demo for inline.
  */
 
 #include <ctype.h>
