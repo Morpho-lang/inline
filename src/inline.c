@@ -1409,6 +1409,7 @@ static void inline_redraw(inline_editor *edit) {
 /** API function to print a syntax colored string */
 void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
     if (!edit || !string) return;
+    fflush(stdout);
     size_t len = strlen(string);
 
     if (!edit->syntax_fn || !edit->palette_count) { // Syntax highlighting not configured, fallback to plain
@@ -1437,6 +1438,7 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
 
         offset = span.byte_end;
     }
+    fflush(stdout);
 }
 
 /* **********************************************************************

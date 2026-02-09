@@ -55,10 +55,10 @@ const char *completefn(const char *buffer, void *ref, size_t *index) {
 
 /** Define color palette */
 static int palette[] = {
-    -1,                           // 0 = default
-    INLINE_MAGENTA,               // 1 = keywords
-    INLINE_RGB(0x33, 0xCC, 0xAA), // 2 = strings
-    INLINE_RGB(0xD9, 0xA5, 0x21), // 3 = numbers
+    -1,                            // 0 = default
+    INLINE_MAGENTA,                // 1 = keywords
+    INLINE_COLOR_ANSI216(1, 4, 3), // 2 = strings
+    INLINE_COLOR_ANSI216(4, 3, 0), // 3 = numbers
 };
 
 /** Helper to set the contents of an inline_color_span_t structure */

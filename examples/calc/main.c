@@ -29,11 +29,11 @@ enum {
    You can swap these to taste. */
 static const int g_palette[] = {
     [P_DEFAULT]    = -1,                        /* default terminal color */
-    [P_NUMBER]     = INLINE_RGB(80, 200, 120),  /* green-ish */
-    [P_OPERATOR]   = INLINE_RGB(240, 180, 60),  /* warm orange */
-    [P_PAREN]      = INLINE_RGB(120, 170, 255), /* blue */
-    [P_FUNCTION]   = INLINE_RGB(210, 120, 255), /* purple */
-    [P_IDENTIFIER] = INLINE_RGB(255, 90, 90),   /* red */
+    [P_NUMBER]     = INLINE_COLOR_ANSI216(1, 4, 2),   /* green-ish */
+    [P_OPERATOR]   = INLINE_COLOR_ANSI216(5, 3, 1),   /* warm orange */
+    [P_PAREN]      = INLINE_COLOR_ANSI216(2, 3, 5),   /* blue */
+    [P_FUNCTION]   = INLINE_COLOR_ANSI216(4, 2, 5),   /* purple */
+    [P_IDENTIFIER] = INLINE_COLOR_ANSI216(5, 1, 1),   /* red */
 };
 
 /* -----------------------
