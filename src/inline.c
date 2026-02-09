@@ -394,14 +394,14 @@ static void inline_signalcrashhandler(int sig, siginfo_t *info, void *ucontext) 
 }
 
 static signalhandlerstate_t siglist[] = {
-    { SIGWINCH, inline_signalwinchhandler,    SA_SIGINFO | SA_RESTART, false, false, {0} },
-    { SIGTERM,  inline_signalgracefulhandler, SA_SIGINFO,              false, false, {0} },
-    { SIGQUIT,  inline_signalgracefulhandler, SA_SIGINFO,              false, false, {0} },
-    { SIGHUP,   inline_signalgracefulhandler, SA_SIGINFO,              false, false, {0} },
-    { SIGSEGV,  inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
-    { SIGABRT,  inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
-    { SIGBUS,   inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
-    { SIGFPE,   inline_signalcrashhandler,    SA_SIGINFO,              false, false, {0} },
+    { SIGWINCH, inline_signalwinchhandler,    SA_SIGINFO | SA_RESTART, false, false, { {0} } },
+    { SIGTERM,  inline_signalgracefulhandler, SA_SIGINFO,              false, false, { {0} } },
+    { SIGQUIT,  inline_signalgracefulhandler, SA_SIGINFO,              false, false, { {0} } },
+    { SIGHUP,   inline_signalgracefulhandler, SA_SIGINFO,              false, false, { {0} } },
+    { SIGSEGV,  inline_signalcrashhandler,    SA_SIGINFO,              false, false, { {0} } },
+    { SIGABRT,  inline_signalcrashhandler,    SA_SIGINFO,              false, false, { {0} } },
+    { SIGBUS,   inline_signalcrashhandler,    SA_SIGINFO,              false, false, { {0} } },
+    { SIGFPE,   inline_signalcrashhandler,    SA_SIGINFO,              false, false, { {0} } },
 };
 
 signalhandlerstate_t *inline_findsighandler(int sig) {
