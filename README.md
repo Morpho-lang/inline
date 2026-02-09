@@ -1,6 +1,6 @@
-![Inline](docs/inlinelogo.png#gh-light-mode-only)![Inline](docs/inlinelogo.png#gh-dark-mode-only)
+![Inline](docs/inlinelogo.png#gh-light-mode-only)![Inline](docs/inlinelogo-dark.png#gh-dark-mode-only)
 
-Inline - a small, grapheme-aware[*] line editor for embedding in other applications. 
+Inline is a small, grapheme-aware[*] line editor for embedding in other applications. 
 
 At the core of many interactive terminal applications is a Read-Evaluate-Print Loop (REPL) where the user supplies input and the application responds accordingly. Inline supplies the "read" component of this pattern, and returns a UTF8 encoded string that the application can process. Inline benefits the user by providing features such as syntax highlighting, history, autocomplete, copy/paste, and multiline editing, while remaining lightweight and portable.
 
