@@ -154,8 +154,11 @@ void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref)
 #define INLINE_CYAN         6
 #define INLINE_WHITE        7
 
-/* Macro for xterm-256 216-color RGB cube : r,g,b are in [0..5]. */
+/** Macro for xterm-256 216-color RGB cube: r,g,b are in [0..5]. */
 #define INLINE_COLOR_ANSI216(r, g, b) (16 + 36 * (int)(r) + 6 * (int)(g) + (int)(b))
+
+/** Macro for xterm-256 gray levels: n is in [0..23] */
+#define INLINE_GRAY_ANSI(n) (232 + (n))
 
 /** Macro for RGB values */
 #define INLINE_COLOR_RGB    0x01000000u
