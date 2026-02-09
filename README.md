@@ -21,7 +21,7 @@ A minimal application using inline is as simple as:
         inline_free(edit); // Free the editor and attached data
     }
 
-Inline is intentionally callback-driven. The editor owns editing, rendering, and terminal interaction; the host application owns the semantics of the input. Features such as syntax highlighting and multiline editing are configured by supplying callback functions. Core components of inline's grapheme processing engine can be replaced. Further details are in "inline_api.md" supplied in this repository. 
+Inline is intentionally callback-driven. The editor owns editing, rendering, and terminal interaction; the host application owns the semantics of the input. Features such as syntax highlighting and multiline editing are configured by supplying callback functions. Core components of inline's grapheme processing engine can be replaced. Further details are in the [API reference](docs/inline_api.md) supplied in this repository. 
 
 Inline is cross platform: both POSIX-like operating systems (macOS, linux) and Windows are supported. There are no dependencies beyond the C standard library and either standard windows or POSIX libraries. Inline is provided under the [MIT license](LICENSE). 
 
