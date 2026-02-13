@@ -10,21 +10,25 @@ In this document, “grapheme” refers to a Unicode extended grapheme cluster a
 
 A minimal line editor is set up and used in a few lines of C: 
 
+```c
     inline_editor *edit = inline_new(">"); // Create an editor
     char *line = inline_readline(edit); // Read a line of text
     free(line); 
     inline_free(edit); // Free the editor and attached data
+```
 
 You may call `inline_readline` as many times as you wish. Each time it will return a utf8 encoded string that has been malloc allocated; you now own the string and must free it when you're done with it. With these four lines, you already get basic line editing with grapheme awareness, history, copy/paste. Additional features are enabled by calling a few configuration methods, often requiring you to supply a callback function that helps inline work. 
 
 A more complete line editor configuration looks like this: 
 
+```c
     inline_editor *edit = inline_new("> ");
     if (!edit) return; // Replace with failure handling code
 
     inline_autocomplete(edit, completefn, NULL); // Configure editor with autocomplete
     inline_syntaxcolor(edit, syntaxhighlighterfn, NULL); // Configure editor with syntax highlighter
     inline_setpalette(edit, nentries, palette);
+```
 
 where `completefn` and `syntaxhighlighterfn` are callback functions defined elsewhere, and palette is a table of colors you supply. 
 
@@ -48,11 +52,15 @@ Inline therefore takes the following approach: a basic grapheme splitter is prov
 
 Where the default splitter is inadequate, it is very likely that the host application will already include a suitable external library anyway. Inline therefore allows you to supply your own splitter as a callback by calling a configuration function:
 
+```c
     void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn);
+```
 
 the callback function must have the following signature:
 
+```c
     size_t split(const char *in, const char *end);
+```
 
 When called by inline, the callback is provided with the start and end point of a string, and must return the size in bytes of the first grapheme or 0 indicating that no complete grapheme could be read. The callback is expected to be state free and should not allocate memory or modify the input buffer. 
 
@@ -60,6 +68,7 @@ Different Unicode libraries provide suitable functions with slightly different s
 
 libunistring: 
 
+```c
     #include <unigbrk.h>
 
     size_t libunistring_graphemefn(const char *in, const char *end) {
@@ -67,14 +76,17 @@ libunistring:
         if (next>in) return next-in;
         return 0;
     }
+```
 
 libgrapheme: 
 
+```c
     #include <grapheme.h>
 
     size_t libgrapheme_graphemefn(const char *in, const char *end) {
         return grapheme_next_character_break_utf8(in, end-in);
     }
+```
 
 ## Grapheme display width calculations
 
@@ -82,11 +94,15 @@ In order to display and navigate text correctly, a line editor must be able to p
 
 Inline therefore provides a simple heuristic width estimator that works with many terminals and graphemes correctly, but allows the programmer to supply their own by calling a configuration function:
 
+```c
     inline_setgraphemewidth(inline_editor *edit, inline_widthfn fn);
+```
 
 The callback has the following signature:
 
+```c
     typedef int (*inline_widthfn)(const char *g, size_t len);
+```
 
 When called by inline, the callback is provided with a pointer to a grapheme and its length. It should return the display width of the grapheme in columns. 
 
@@ -96,13 +112,17 @@ In practice, programmers embedding inline are expected to override the default w
 
 Inline can maintain a history of previous input that the user can recall during an editing session using the up/down arrow keys. A new entry is added to the history by `inline_readline` after editing is complete before it returns to the caller; the host program need not add the entry itself. The contents of the history are managed by `inline` and free'd when the editor is free'd with `inline_free`. Two API functions are provided to control the history. The first,  
 
+```c
     inline_sethistorylength(inline_editor *edit, int maxlen);
+```
 
 allows the programmer to set a length limit. The value of `maxlen` indicates, if `maxlen` is positive, the maximum number of history values stored. If `maxlen` is zero, the history feature is disabled entirely. Negative values of `maxlen` indicate unlimited history, which is the default setting. `inline_sethistorylength` may be called multiple times; if there are most history entries stored than allowed by `maxlen` excess entries are immediately free'd.
 
 It is possible to add entries to the history manually using, 
 
+```c
     inline_addhistory(inline_editor *edit, const char *entry);
+```
 
 The contents of `entry` are immediately copied into the history list provided entry is not `NULL` or empty; `entry` itself is not stored directly. The return value of `inline_addhistory` indicates whether the contents of `entry` were successfully added to the history list. 
 
@@ -110,14 +130,18 @@ The contents of `entry` are immediately copied into the history list provided en
 
 Inline provides a mechanism for the application to offer autocomplete suggestions to the user. For example, a language REPL might wish to suggest keywords matching partially completed input. Inline handles when and if to offer suggestions but provides a callback mechanism to gather them from you. If you wish to enable the suggestion mechanism, use the configuration function:
 
-    inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref); 
+```c
+    inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref);
+```
 
 You must supply a callback function, and you may also supply an opaque pointer `ref`. Inline stores `ref` and passes it to the callback, but does not do anything else with it. You may change
 the reference at any time by calling `inline_autocomplete` again. 
 
 The callback has the following signature: 
 
+```c
     typedef const char *(*inline_completefn) (const char *utf8, void *ref, size_t *index);
+```
 
 Inline invokes this callback when it wishes to gather suggestions by calling it repeatedly with a pointer to the complete input buffer `utf8` and the reference pointer `ref`. The parameter `index` points to a `size_t` variable that inline initializes to zero at the start of each suggestion-gathering sequence. The callback should return a pointer to a matching completion, or `NULL` when no further matches are available. The callback must update the value of `index` between calls to avoid returning the same suggestion more than once.
 
@@ -135,26 +159,34 @@ Syntax highlighting is a feature that displays elements of the buffer in differe
 
 To enable the feature, you must call the configuration function:
 
+```c
     inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref);
+```
 
 You must supply a callback function and an opaque reference pointer `ref`, which can be `NULL`. Inline stores the pointer and passes it to the callback but does not otherwise attempt to examine the contents. To change the reference pointer, simply call `inline_syntaxcolor` again with a new value. It is also necessary to provide a palette as will be described below. 
 
 The callback has the following signature: 
 
+```c
     typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset, inline_colorspan_t *out);
+```
 
 When inline wishes to understand how to highlight the buffer, it repeatedly calls the callback to determine the next span to color. The complete contents of the input buffer are passed in `utf8`. The callback should start scanning the buffer from byte offset `offset` and determine the end of the next span to color. Spans must not overlap and should be monotonically increasing. When the callback has done so, it fills out the structure `inline_colorspan_t`:
 
+```c
     typedef struct {
         size_t byte_end; /* exclusive end of color span */
         int color;     /* Index into color palette */
     } inline_colorspan_t;
+```
 
 The callback must update the `byte_end` and `color` entries and notably must always advance `byte_end` beyond `offset` or undefined behavior occurs. Note that the `color` entry is an index into a palette array, not a color value directly. The callback should return `true` if there are more spans to color and `false` to halt highlighting and display any remaining text in the default color. Inline resets terminal attributes at the end of each redraw.
 
 The palette is configured by calling: 
 
+```c
     inline_setpalette(inline_editor *edit, int count, const int *palette);
+```
 
 The caller supplies an array of integers representing colors and `count` indicating the length of the array. Inline copies the contents of the array and does not store the pointer you supply. 
 
@@ -171,13 +203,17 @@ Inline does not validate color values; invalid values result in undefined termin
 
 Multiline editing is enabled by calling a configuration function:
 
+```c
     bool inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
+```
 
 You must supply a callback that is used to decide whether to enter multiline mode given particular input, and an opaque reference pointer `ref` that will be supplied to the callback, which can be `NULL`. As for other inline API functions, inline simply stores this reference and does not attempt to inspect or modify its contents. You may also specify a special prompt `continuation_prompt` that will be displayed only on continuation lines, or supply `NULL` to use the default prompt. Inline copies this prompt immediately and does not store the string you supply. `inline_multiline` returns true if the callback and prompt are set successfully. 
 
 The callback has the following signature: 
 
+```c
     typedef bool (*inline_multilinefn) (const char *utf8, void *ref);
+```
 
 When inline wishes to decide whether to enter multiline editing mode---typically this might happen when the user presses the Return or Enter key---it calls your callback with the complete contents of the input buffer in `utf8` and the reference pointer you supplied at configuration. 
 
@@ -185,6 +221,7 @@ The callback should inspect the text and return `true` to enter multiline mode o
 
 The callback should be fast and side-effect free; it may be called on every Enter press. Hence, the decision is usually made heuristically rather than by detailed parsing. This simple example checks for an unmatched opening parenthesis for example, as might be useful in implementing a simple calculator or LISP interpreter:
 
+```c
     static bool multilinefn(const char *in, void *ref) {
         int nb=0; 
         for (char *c=in; *c!='\0'; c++) { // Match parentheses
@@ -196,6 +233,7 @@ The callback should be fast and side-effect free; it may be called on every Ente
         }
         return (nb>0); // Is there an unmatched left parenthesis?
     }
+```
 
 ## Terminal helper functions
 
@@ -203,13 +241,17 @@ Inline also provides a small number of utility functions to assist programmers i
 
 The first,
 
+```c
     bool inline_checktty(void);
+```
 
 returns `true` if both `stdin` and `stdout` refer to terminal devices capable of interactive input and output, and `false` otherwise. This can be used to detect whether the application is running in an interactive terminal or whether input or output has been redirected (for example, via a UNIX pipe or file).
 
 To display a string using inline’s syntax highlighting mechanism without enabling interactive editing, use: 
 
+```c
     void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string);
+```
 
 This function applies the same syntax highlighting callback configuration used by the interactive editor, but does not read input or modify editor state. It simply renders the supplied string to the terminal, with no newline appended, and resets the terminal state after rendering.
 
