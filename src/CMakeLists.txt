@@ -10,7 +10,7 @@ endif()
 
 # Library source files
 add_library(inline STATIC
-    inline.c
+    inline.c    inline.h
 )
 
 target_include_directories(inline

@@ -24,7 +24,7 @@
     #include <sys/ioctl.h>
     #include <sys/types.h>
     #include <signal.h>
-    #include <strings.h> 
+    #include <strings.h>
 #endif
 
 #define INLINE_DEFAULT_BUFFER_SIZE 128
@@ -32,7 +32,7 @@
 
 #define INLINE_ESCAPECODE_MAXLENGTH 32
 
-#define INLINE_INVALID -1 
+#define INLINE_INVALID -1
 
 #define INLINE_TAB_WIDTH 2
 
@@ -40,7 +40,7 @@
 
 #ifdef _WIN32
 typedef DWORD termstate_t;
-#else 
+#else
 typedef struct termios termstate_t;
 #endif
 
@@ -65,8 +65,8 @@ typedef struct {
 
 /** The editor data structure */
 typedef struct inline_editor {
-    char *prompt; 
-    char *continuation_prompt; 
+    char *prompt;
+    char *continuation_prompt;
 
     int ncols;                            // Number of columns
 
@@ -75,7 +75,7 @@ typedef struct inline_editor {
     size_t buffer_size;                   // Size of buffer allocated in bytes
 
     char *clipboard;                      // Clipboard buffer
-    size_t clipboard_len;                 // Length of contents in bytes 
+    size_t clipboard_len;                 // Length of contents in bytes
     size_t clipboard_size;                // Size of clipboard in bytes
 
     size_t *graphemes;                    // Offset to each grapheme
@@ -87,7 +87,7 @@ typedef struct inline_editor {
     size_t line_size;                     // Size of line buffer in bytes
 
     int cursor_posn;                      // Position of cursor in graphemes
-    int selection_posn;                   // Selection posn in graphemes 
+    int selection_posn;                   // Selection posn in graphemes
     int term_cursor_row;                  // Record the cursor's physical row
     int term_lines_drawn;                 // Record how many lines were previously drawn
 
@@ -98,7 +98,7 @@ typedef struct inline_editor {
     int palette_count;                    // Length of palette list
 
     inline_completefn complete_fn;        // Autocomplete callback
-    void *complete_ref;                   // User reference 
+    void *complete_ref;                   // User reference
 
     inline_stringlist_t suggestions;      // List of suggestions from autocompleter
     bool suggestion_shown;                // Set if renderer was able to show a suggestion
@@ -109,26 +109,26 @@ typedef struct inline_editor {
     inline_graphemefn grapheme_fn;        // Custom grapheme splitter
     inline_widthfn width_fn;              // Custom grapheme width function
 
-    inline_stringlist_t history;          // List of history entries 
+    inline_stringlist_t history;          // List of history entries
     int max_history_length;               // Maximum length of the history
 
     inline_viewport viewport;             // Terminal viewport
 
-#ifdef _WIN32                             // Preserve terminal state 
-    termstate_t termstate_in; 
-    termstate_t termstate_out; 
-#else 
-    termstate_t termstate;                
-#endif 
+#ifdef _WIN32                             // Preserve terminal state
+    termstate_t termstate_in;
+    termstate_t termstate_out;
+#else
+    termstate_t termstate;
+#endif
     bool rawmode_enabled;                 // Record if rawmode has already been enabled
 
     bool refresh;                         // Set to refresh on next redraw
-} inline_editor; 
+} inline_editor;
 
 static inline_editor *inline_lasteditor = NULL;
 
 // Forward declarations
-static char *inline_strdup(const char *s); 
+static char *inline_strdup(const char *s);
 static void inline_disablerawmode(inline_editor *edit);
 static void inline_stringlist_init(inline_stringlist_t *list);
 static void inline_stringlist_clear(inline_stringlist_t *list);
@@ -138,6 +138,7 @@ static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes)
 static void inline_clear(inline_editor *edit);
 static void inline_clearselection(inline_editor *edit);
 static void inline_clearsuggestions(inline_editor *edit);
+static bool inline_stringwidth(inline_editor *edit, const char *str, int *width);
 
 /* -----------------------
  * New/free API
@@ -171,7 +172,7 @@ inline_editor *inline_new(const char *prompt) {
 
 inline_new_cleanup:
     inline_free(edit);
-    return NULL; 
+    return NULL;
 }
 
 /** API function to free a line editor and associated resources */
@@ -191,7 +192,7 @@ void inline_free(inline_editor *edit) {
 
     free(edit->palette);
 
-    if (inline_lasteditor==edit) inline_lasteditor = NULL; 
+    if (inline_lasteditor==edit) inline_lasteditor = NULL;
 
     free(edit);
 }
@@ -219,7 +220,7 @@ bool inline_setpalette(inline_editor *edit, int count, const int *palette) {
 
     memcpy(edit->palette, palette, sizeof(int) * count);
     edit->palette_count = count;
-    return true; 
+    return true;
 }
 
 /** API function to enable autocomplete */
@@ -243,16 +244,16 @@ bool inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, con
 
 /** API function to use a custom grapheme splitter */
 void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn) {
-    edit->grapheme_fn = fn; 
+    edit->grapheme_fn = fn;
 }
 
 /** API function to use a custom grapheme width function */
 void inline_setgraphemewidth(inline_editor *edit, inline_widthfn fn) {
-    edit->width_fn = fn; 
+    edit->width_fn = fn;
 }
 
 /* **********************************************************************
- * Platform-dependent code 
+ * Platform-dependent code
  * ********************************************************************** */
 
 /* ----------------------------------------
@@ -265,7 +266,7 @@ bool inline_checktty(void) {
 }
 
 /** Check whether the terminal type is supported. */
-static bool inline_checksupported(void) {
+bool inline_checksupported(void) {
 #ifndef _WIN32
     const char *term = getenv("TERM");
     if (!term || !*term) return false;
@@ -279,26 +280,39 @@ static bool inline_checksupported(void) {
     return true; // Windows and other terminals are supported
 }
 
-/** Update the terminal width */
-static void inline_updateterminalwidth(inline_editor *edit) {
-    int width = 80; // fallback 
-
+/** Read the width from the terminal */
+bool inline_getterminalwidth(int *width) {
 #ifdef _WIN32
     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO csbi;
 
     if (GetConsoleScreenBufferInfo(h, &csbi)) {
-        width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+        *width=csbi.srWindow.Right - csbi.srWindow.Left + 1;
+        return true;
     }
 #else
     struct winsize ws;
 
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != -1 && ws.ws_col > 0) {
-        width = ws.ws_col;
+        *width=ws.ws_col;
+        return true;
     }
 #endif
+    return false;
+}
 
+/** Update the terminal width */
+static void inline_updateterminalwidth(inline_editor *edit) {
+    int width = 80; // fallback
+    inline_getterminalwidth(&width);
     edit->ncols = width;
+}
+
+/** Update viewport width based on current terminal width (preserves viewport position) */
+static void inline_updateviewportwidth(inline_editor *edit) {
+    int prompt_width;
+    if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width = 0;
+    edit->viewport.screen_cols = edit->ncols - prompt_width - 1; // Reserve last col to avoid pending wrap state
 }
 
 /* ----------------------------------------
@@ -311,10 +325,10 @@ static void inline_atexitrestore(void) {
 
 #ifdef _WIN32
 static bool termstate_set = false;
-static termstate_t termstate_in; 
+static termstate_t termstate_in;
 static termstate_t termstate_out;
 static int resize_pending = 0;
-static bool consolehandler_installed = false; 
+static bool consolehandler_installed = false;
 static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
     (void) ctrl;
     if (termstate_set) {
@@ -325,7 +339,7 @@ static BOOL WINAPI inline_consolehandler(DWORD ctrl) {
     }
     return FALSE; // Allow default behavior
 }
-#else 
+#else
 termstate_t termstate;
 static volatile sig_atomic_t termstate_set = 0;
 static volatile sig_atomic_t resize_pending = 0;
@@ -351,11 +365,11 @@ static bool inline_callprevious(int sig, siginfo_t *info, void *ucontext) {
         return true;
     }
 #endif
-    if (handler->previous.sa_handler) { 
-        handler->previous.sa_handler(sig); 
-        return true; 
+    if (handler->previous.sa_handler) {
+        handler->previous.sa_handler(sig);
+        return true;
     }
-    return false; 
+    return false;
 }
 
 static void inline_restoredisposition(int sig) {
@@ -364,7 +378,7 @@ static void inline_restoredisposition(int sig) {
     if (handler && handler->has_previous && handler->previous.sa_handler != SIG_IGN) {
         sigaction(sig, &handler->previous, NULL);
     } else {
-        struct sigaction restore; 
+        struct sigaction restore;
         memset(&restore, 0, sizeof(restore));
         restore.sa_handler = SIG_DFL;
         sigemptyset(&restore.sa_mask);
@@ -384,13 +398,13 @@ static void inline_signalgracefulhandler(int sig, siginfo_t *info, void *ucontex
     if (inline_callprevious(sig, info, ucontext)) return; // If the previous signal handler was called and returned, we do too
     inline_restoredisposition(sig);
     kill(getpid(), sig);
-    _Exit(128 + sig); 
+    _Exit(128 + sig);
 }
 static void inline_signalcrashhandler(int sig, siginfo_t *info, void *ucontext) {
     inline_emergencyrestore();
     inline_restoredisposition(sig);
     kill(getpid(), sig);
-    _Exit(128 + sig); 
+    _Exit(128 + sig);
 }
 
 static signalhandlerstate_t siglist[] = {
@@ -410,18 +424,18 @@ signalhandlerstate_t *inline_findsighandler(int sig) {
 }
 #endif
 
-static int install_count = 0; 
+static int install_count = 0;
 
 /** Register emergency exit and signal handlers */
 static void inline_registeremergencyhandlers(void) {
     install_count++;
-    if (install_count>1) return; 
+    if (install_count>1) return;
 
     static bool atexit_registered=false;
     if (!atexit_registered) { atexit(inline_atexitrestore); atexit_registered=true; }
-#ifdef _WIN32 
-    if (SetConsoleCtrlHandler(inline_consolehandler, TRUE)) consolehandler_installed=true; 
-#else 
+#ifdef _WIN32
+    if (SetConsoleCtrlHandler(inline_consolehandler, TRUE)) consolehandler_installed=true;
+#else
     #ifndef INLINE_NO_SIGNALS
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
@@ -440,28 +454,28 @@ static void inline_registeremergencyhandlers(void) {
         sa.sa_flags     = siglist[i].flags;
         if (sigaction(siglist[i].sig, &sa, NULL) == 0) siglist[i].installed=true;
     }
-    #endif 
+    #endif
 #endif
 }
 
 /** Restore emergency handlers previously installed */
 static void inline_restoreemergencyhandlers(void) {
     if (install_count>0) install_count--;
-    if (install_count>0) return; 
+    if (install_count>0) return;
 #ifdef _WIN32
-    if (consolehandler_installed) 
-    if (SetConsoleCtrlHandler(inline_consolehandler, FALSE)) consolehandler_installed = false; 
-#else 
+    if (consolehandler_installed)
+    if (SetConsoleCtrlHandler(inline_consolehandler, FALSE)) consolehandler_installed = false;
+#else
     #ifndef INLINE_NO_SIGNALS
     for (size_t i = 0; i < sizeof(siglist)/sizeof(siglist[0]); i++) {
         if (!siglist[i].has_previous || !siglist[i].installed) continue;
         sigaction(siglist[i].sig, &siglist[i].previous, NULL); // Restore previous handler
 
-        siglist[i].installed = false; // Wipe 
+        siglist[i].installed = false; // Wipe
         siglist[i].has_previous = false;
         memset(&siglist[i].previous, 0, sizeof(siglist[i].previous));
     }
-    #endif 
+    #endif
 #endif
 }
 
@@ -470,7 +484,7 @@ static void inline_restoreemergencyhandlers(void) {
  * ---------------------------------------- */
 
 /** Enable utf8 */
-static void inline_setutf8(void) {
+void inline_setutf8(void) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
@@ -481,8 +495,8 @@ static void inline_setutf8(void) {
 static bool inline_enablerawmode(inline_editor *edit) {
     if (edit->rawmode_enabled) return true;
 
-#ifdef _WIN32 
-    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE); 
+#ifdef _WIN32
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
     DWORD mode = 0;
     if (!GetConsoleMode(hIn, &mode)) return false;
     edit->termstate_in = mode;
@@ -490,17 +504,17 @@ static bool inline_enablerawmode(inline_editor *edit) {
     mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
     if (!SetConsoleMode(hIn, mode)) return false; // Disable cooked mode
 
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE); 
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (!GetConsoleMode(hOut, &edit->termstate_out)) return false;
     DWORD newOut = edit->termstate_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     if (!SetConsoleMode(hOut, newOut)) return false; // Enable VT output
 
-    if (!termstate_set) { 
-        termstate_in = edit->termstate_in; 
+    if (!termstate_set) {
+        termstate_in = edit->termstate_in;
         termstate_out = edit->termstate_out;
         termstate_set = true;
     }
-#else 
+#else
     if (tcgetattr(STDIN_FILENO, &edit->termstate) == -1) return false;
 
     struct termios raw = edit->termstate;
@@ -522,8 +536,8 @@ static bool inline_enablerawmode(inline_editor *edit) {
     raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) return false;
-    if (!termstate_set) { 
-        termstate = edit->termstate; 
+    if (!termstate_set) {
+        termstate = edit->termstate;
         termstate_set = true;
     }
 #endif
@@ -543,7 +557,7 @@ static void inline_disablerawmode(inline_editor *edit) {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     SetConsoleMode(hIn,  edit->termstate_in);
     SetConsoleMode(hOut, edit->termstate_out);
-#else 
+#else
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &edit->termstate);
 #endif
 
@@ -581,12 +595,12 @@ static bool inline_extendbufferby(inline_editor *edit, size_t extra) {
 
     size_t newcap = edit->buffer_size ? edit->buffer_size : INLINE_DEFAULT_BUFFER_SIZE;
     while (newcap < required) {
-        if (newcap > SIZE_MAX / 2) return false; 
+        if (newcap > SIZE_MAX / 2) return false;
         newcap *= 2; // Grow exponentially
     }
 
     void *p = realloc(edit->buffer, newcap);
-    if (!p) return false;  
+    if (!p) return false;
     edit->buffer = p;
     edit->buffer_size = newcap;
 
@@ -657,7 +671,7 @@ static size_t inline_graphemesplit(const char *in, const char *end) {
     // Read first codepoint
     size_t len = inline_utf8length(*p);
     if (len == 0) len = 1; // Recover from malformed utf8 codepoint
-    if ((size_t)(uend - p) < len) return (size_t)(uend - p); 
+    if ((size_t)(uend - p) < len) return (size_t)(uend - p);
     p += len;
 
     // Combining diacritical marks U+0300–U+036F (accents, etc.)
@@ -667,7 +681,7 @@ static size_t inline_graphemesplit(const char *in, const char *end) {
         p += len;
     }
 
-    do { // Skip past suffix extenders 
+    do { // Skip past suffix extenders
         len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend);
         p += len;
     } while (len!=0);
@@ -699,7 +713,7 @@ static void inline_recomputegraphemes(inline_editor *edit) {
     if (required_bytes > edit->grapheme_size) {
         size_t newsize = (edit->grapheme_size ? edit->grapheme_size : INLINE_DEFAULT_BUFFER_SIZE);
         while (newsize < required_bytes) {
-            if (newsize > SIZE_MAX / 2) return; 
+            if (newsize > SIZE_MAX / 2) return;
             newsize *= 2;
         }
 
@@ -722,7 +736,7 @@ static void inline_recomputegraphemes(inline_editor *edit) {
     while (p < end) { // Walk the buffer and record grapheme boundaries
         edit->graphemes[count++] = (size_t)(p - edit->buffer);
         size_t len = fn(p, end);
-        if (len == 0) len = 1; // Malformed grapheme 
+        if (len == 0) len = 1; // Malformed grapheme
         if (len > (size_t)(end - p)) len = (size_t)(end - p); // Size longer than buffer
         p += len;
     }
@@ -736,7 +750,7 @@ static inline void inline_graphemerange(inline_editor *edit, int i, size_t *star
     if (i < 0 || i >= edit->grapheme_count) { // Handle out of bounds access (incl. i representing end of line)
         if (start) *start = edit->buffer_len;
         if (end)   *end   = edit->buffer_len;
-        return; 
+        return;
     }
 
     if (start) *start = edit->graphemes[i];
@@ -805,9 +819,9 @@ static bool inline_checkextenders(const unsigned char *g, size_t len) {
 
 /** Predict the display width of a grapheme */
 static int inline_graphemewidth(const char *p, size_t len) {
-    const unsigned char *g = (const unsigned char *) p; 
+    const unsigned char *g = (const unsigned char *) p;
     if (!len) return 0;
-    if (g[0] == '\t') return INLINE_TAB_WIDTH; // Tab 
+    if (g[0] == '\t') return INLINE_TAB_WIDTH; // Tab
     if (g[0] < 0x80) return 1; // ASCII fast path
 
     if (len >= 2 && (g[0] == 0xCC || g[0] == 0xCD)) return 0; // Combining-only grapheme (rare)
@@ -874,14 +888,14 @@ static void inline_stringlist_init(inline_stringlist_t *list) {
 static bool inline_stringlist_add(inline_stringlist_t *list, const char *s) {
     if (!s) return false; // Never add a null pointer
     char *copy = inline_strdup(s);
-    if (!copy) return false;  
+    if (!copy) return false;
     char **newitems = realloc(list->items, sizeof(char*) * (list->count + 1));
     if (!newitems) { free(copy); return false; } // Don't update if realloc fails
 
     list->items = newitems;
-    list->items[list->count] = copy; 
+    list->items[list->count] = copy;
     list->count++;
-    return true; 
+    return true;
 }
 
 /** Removes and frees the first element of the stringlist;  */
@@ -939,8 +953,8 @@ static bool inline_selectionrange(inline_editor *edit, int *sel_l, int *sel_r, s
     int l = imin(edit->selection_posn, edit->cursor_posn);
     int r = imax(edit->selection_posn, edit->cursor_posn);
     
-    if (sel_l) *sel_l = l; 
-    if (sel_r) *sel_r = r; 
+    if (sel_l) *sel_l = l;
+    if (sel_r) *sel_r = r;
     if (start) inline_graphemerange(edit, l, start, NULL);
     if (end) inline_graphemerange(edit, r, end,   NULL);
     
@@ -954,16 +968,16 @@ static bool inline_selectionrange(inline_editor *edit, int *sel_l, int *sel_r, s
 /** Copies a string of given length onto the clipboard. */
 static bool inline_copytoclipboard(inline_editor *edit, const char *string, size_t length) {
     if (!string || length==0) { // Empty clipboard
-        if (edit->clipboard) edit->clipboard[0] = '\0';  
+        if (edit->clipboard) edit->clipboard[0] = '\0';
         edit->clipboard_len = 0;
-        return true; 
+        return true;
     }
 
     size_t needed = length + 1; // Check if we have sufficient capacity and realloc if necessary
-    if (needed > edit->clipboard_size) { 
+    if (needed > edit->clipboard_size) {
         size_t newsize = edit->clipboard_size ? edit->clipboard_size : INLINE_DEFAULT_BUFFER_SIZE;
         while (newsize < needed) {
-            if (newsize > SIZE_MAX / 2) return false; 
+            if (newsize > SIZE_MAX / 2) return false;
             newsize *= 2;
         }
 
@@ -977,7 +991,7 @@ static bool inline_copytoclipboard(inline_editor *edit, const char *string, size
     memmove(edit->clipboard, string, length); // Copy onto clipboard
     edit->clipboard[length] = '\0'; // Ensure null termination
     edit->clipboard_len = length;
-    return true; 
+    return true;
 }
 
 /* ----------------------------------------
@@ -1037,7 +1051,7 @@ static void inline_advancesuggestions(inline_editor *edit, int delta) {
 
 /** Set the history length. */
 void inline_sethistorylength(inline_editor *edit, int maxlen) {
-    edit->max_history_length=maxlen; 
+    edit->max_history_length=maxlen;
 
     if (maxlen > 0) { // Remove excess entries if necessary
         while (edit->history.count > maxlen) inline_stringlist_popfront(&edit->history);
@@ -1056,13 +1070,13 @@ bool inline_addhistory(inline_editor *edit, const char *entry) {
     }
 
     inline_stringlist_add(&edit->history, entry);
-    if (edit->max_history_length > 0 && edit->history.count > edit->max_history_length) inline_stringlist_popfront(&edit->history); 
-    return true; 
+    if (edit->max_history_length > 0 && edit->history.count > edit->max_history_length) inline_stringlist_popfront(&edit->history);
+    return true;
 }
 
 /** Advances the current history */
 static void inline_advancehistory(inline_editor *edit, int delta) {
-    int count = inline_stringlist_count(&edit->history); 
+    int count = inline_stringlist_count(&edit->history);
     if (count == 0) return;
 
     // Enter history mode if we're not in it
@@ -1093,7 +1107,7 @@ static void inline_reset(inline_editor *edit) {
     inline_endhistorybrowsing(edit);
     inline_stringlist_clear(&edit->suggestions);
     edit->rawmode_enabled = false;
-    edit->term_cursor_row = 0; 
+    edit->term_cursor_row = 0;
     edit->term_lines_drawn = 0;
 }
 
@@ -1106,9 +1120,7 @@ static void inline_initviewport(inline_editor *edit) {
     edit->viewport.first_visible_line = 0;
     edit->viewport.first_visible_col  = 0;
     edit->viewport.screen_rows = 1; // Will adjust for multiline editing later
-    int prompt_width; 
-    if (!inline_stringwidth(edit, edit->prompt, &prompt_width)) prompt_width = 0; 
-    edit->viewport.screen_cols = edit->ncols - prompt_width - 1; // Reserve last col to avoid pending wrap state
+    inline_updateviewportwidth(edit);
 }
 
 /** Compute logical cursor position in rows and columns */
@@ -1118,7 +1130,7 @@ static void inline_cursorposn(inline_editor *edit, int *out_row, int *out_col) {
     int row = 0; // Find the row containing the cursor
     while (row + 1 < edit->line_count && edit->lines[row + 1] <= byte_pos) row++;
 
-    if (out_row) *out_row = row; 
+    if (out_row) *out_row = row;
     // The column is found by subtracting the grapheme offset of the start of the row
     if (out_col) *out_col = edit->cursor_posn - inline_findgraphemeindex(edit, edit->lines[row]);
 }
@@ -1158,12 +1170,12 @@ static void inline_ensurecursorvisible(inline_editor *edit) {
 #define TERM_INVERSEVIDEO       "\x1b[7m"
 
 /** Write an escape sequence to the terminal */
-static inline void inline_emit(const char *seq) {
+void inline_emit(const char *seq) {
     write(STDOUT_FILENO, seq, (unsigned int) strlen(seq));
 }
 
 /** Writes an escape sequence to produce a given color */
-static void inline_emitcolor(int color) {
+void inline_emitcolor(int color) {
     if (color < 0) return; // default
     char seq[INLINE_ESCAPECODE_MAXLENGTH];
     int n = 0;
@@ -1210,7 +1222,7 @@ static inline void inline_clipgraphemerange(inline_editor *edit, int line_start,
 
     if (start < 0) start = *g_end; // Clamp if line is empty or viewport is beyond end
     if (end < start) end = start;
-    else if (end > start && edit->buffer[edit->graphemes[end-1]] == '\n') end--; 
+    else if (end > start && edit->buffer[edit->graphemes[end-1]] == '\n') end--;
 
     *g_start = start;
     *g_end   = end;
@@ -1244,24 +1256,24 @@ static inline void inline_moveby(int dx, int dy) {
     }
 }
 
-/** Render a single line of text 
+/** Render a single line of text
  * @param[in] - edit        - the editor
  * @param[in] - prompt      - prompt for this line
  * @param[in] - byte_start  - byte offset for the start of the line
  * @param[in] - byte_end    - byte offset for the end of the line
  * @param[in] - logical_cursor_col - column the cursor should be displayed in logical coordinates, or -1 if not on this line
- * @param[in] - is_last     - whether this is the last line 
- * @param[out] - rendered_cursor_col - if logical_cursor_col indicates the cursor is on this line, 
- *                                     set to logical column the cursor should be rendered on, incuding clipping 
+ * @param[in] - is_last     - whether this is the last line
+ * @param[out] - rendered_cursor_col - if logical_cursor_col indicates the cursor is on this line,
+ *                                     set to logical column the cursor should be rendered on, incuding clipping
  *                                     and prompt widt, or -1 if outside clipping window; otherwise not changed. */
-static void inline_renderline(inline_editor *edit, const char *prompt, size_t byte_start, size_t byte_end, 
+static void inline_renderline(inline_editor *edit, const char *prompt, size_t byte_start, size_t byte_end,
                                int logical_cursor_col, bool is_last, int *rendered_cursor_col) {
     write(STDOUT_FILENO, prompt, (unsigned int) strlen(prompt)); // Write prompt
     int prompt_width = 0; // Calculate its display width
-    if (!inline_stringwidth(edit, prompt, &prompt_width)) prompt_width = 0; 
+    if (!inline_stringwidth(edit, prompt, &prompt_width)) prompt_width = 0;
 
     int rendered_width = prompt_width; // Track rendered width
-    int rendered_cursor_posn = -1; 
+    int rendered_cursor_posn = -1;
 
     // Compute selection bounds, if active
     int sel_l = INLINE_INVALID, sel_r = INLINE_INVALID;
@@ -1324,7 +1336,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
                 selection_on = in_selection;
             }
 
-            if (edit->buffer[gs] == '\n') break; 
+            if (edit->buffer[gs] == '\n') break;
 
             if (logical_cursor_col >= 0 &&  // Check if this grapheme was where the cursor is
                 line_start + logical_cursor_col == g) rendered_cursor_posn = rendered_width;
@@ -1343,13 +1355,13 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
     // Ghosted suggestion suffix (only if at right edge on last line)
     if (is_last && g_end == edit->grapheme_count && logical_cursor_col >= 0) {
         const char *suffix = inline_currentsuggestion(edit);
-        edit->suggestion_shown=false; 
+        edit->suggestion_shown=false;
         if (suffix && *suffix) {
             int remaining_cols = edit->viewport.screen_cols - rendered_width;
 
             // Width of suggestion
             int ghost_width = 0;
-            if (!inline_stringwidth(edit, suffix, &ghost_width)) ghost_width = 0; 
+            if (!inline_stringwidth(edit, suffix, &ghost_width)) ghost_width = 0;
 
             if (ghost_width <= remaining_cols) { // Show suggestion as faint text
                 edit->suggestion_shown=true;
@@ -1385,7 +1397,7 @@ static void inline_redraw(inline_editor *edit) {
         inline_emit("\r");        // Move cursor to start of line
 
         inline_renderline(edit, (i==0 ? edit->prompt : edit->continuation_prompt), // prompt
-                          byte_start, byte_end, 
+                          byte_start, byte_end,
                           (cursor_row == i ? cursor_col : -1), // cursor column if on this line
                           is_last, // whether we're on the last line or not
                           &rendered_cursor_col );
@@ -1396,7 +1408,7 @@ static void inline_redraw(inline_editor *edit) {
     int extra = (edit->term_lines_drawn > edit->line_count ? edit->term_lines_drawn - edit->line_count : 0);
     for (int i = 0; i < extra; i++) {
         inline_emit("\n\r");
-        inline_emit(TERM_CLEAR); 
+        inline_emit(TERM_CLEAR);
     }
 
     write(STDOUT_FILENO, "\r", 1); // Move to start of line
@@ -1418,7 +1430,7 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
     }
 
     size_t offset = 0;
-    while (offset < len) { // 
+    while (offset < len) { //
         inline_colorspan_t span = { .byte_end = offset, .color=-1};
 
         bool ok = edit->syntax_fn(string, edit->syntax_ref, offset, &span); // Obtain next span
@@ -1452,7 +1464,7 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
 /** Type that represents a single unit of input */
 typedef unsigned char rawinput_t;
 
-#ifdef _WIN32 
+#ifdef _WIN32
 static bool inline_readkeyevent(KEY_EVENT_RECORD *k) {
     INPUT_RECORD rec;
     DWORD nread;
@@ -1462,6 +1474,7 @@ static bool inline_readkeyevent(KEY_EVENT_RECORD *k) {
         if (!ReadConsoleInputW(hIn, &rec, 1, &nread)) return false;
 
         if (rec.EventType == WINDOW_BUFFER_SIZE_EVENT) {
+            resize_pending = 1;
             if (inline_lasteditor) inline_lasteditor->refresh = true;
             continue;
         }
@@ -1526,13 +1539,13 @@ static int inline_translatekeypress(const KEY_EVENT_RECORD *k, unsigned char out
 
     if (wc != 0) { // Unicode
         if (wc < 0x80) {
-            out[0] = (unsigned char)wc; 
+            out[0] = (unsigned char)wc;
             return 1;
         } else if (wc < 0x800) {
             out[0] = (unsigned char)(0xC0 | ((unsigned int)wc >> 6));
             out[1] = (unsigned char)(0x80 | ((unsigned int)wc & 0x3F));
             return 2;
-        } else if (wc < 0xD800 || wc > 0xDFFF) {    
+        } else if (wc < 0xD800 || wc > 0xDFFF) {
             out[0] = 0xE0 | (wc >> 12);
             out[1] = 0x80 | ((wc >> 6) & 0x3F);
             out[2] = 0x80 | (wc & 0x3F);
@@ -1609,15 +1622,15 @@ typedef struct {
 } keypress_t;
 
 static void inline_keypressunknown(keypress_t *keypress) {
-    keypress->type=KEY_UNKNOWN; 
-    keypress->c[0]='\0'; 
-    keypress->nbytes=0; 
+    keypress->type=KEY_UNKNOWN;
+    keypress->c[0]='\0';
+    keypress->nbytes=0;
 }
 
 static void inline_keypresswithchar(keypress_t *keypress, keytype_t type, char c) {
-    keypress->type=type; 
+    keypress->type=type;
     keypress->c[0]=c; keypress->c[1]='\0';
-    keypress->nbytes=1; 
+    keypress->nbytes=1;
 }
 
 /** Map from terminal codes to keytype_t  */
@@ -1645,7 +1658,7 @@ static void inline_decode_escape(keypress_t *out) {
     int i = 0;
     out->type = KEY_UNKNOWN;
 
-    // Expect '[' 
+    // Expect '['
     if (!inline_readraw(&seq[i]) || seq[0] != '[') { return; }
 
     // Read until alpha terminator
@@ -1655,7 +1668,7 @@ static void inline_decode_escape(keypress_t *out) {
     }
     seq[i + 1] = '\0'; // Ensure null terminated
 
-    // Lookup escape code 
+    // Lookup escape code
     for (size_t j = 0; j < sizeof(esc_table)/sizeof(esc_table[0]); j++) {
         if (strcmp((const char *)seq, esc_table[j].seq) == 0) {
             out->type = esc_table[j].type;
@@ -1681,12 +1694,12 @@ static void inline_decode_utf8(unsigned char first, keypress_t *out) {
 
 /** Raw control codes produced by POSIX terminals */
 enum keycodes {
-    BACKSPACE_CODE = 8,   // Backspace (Ctrl+H) 
-    TAB_CODE       = 9,   // Tab 
+    BACKSPACE_CODE = 8,   // Backspace (Ctrl+H)
+    TAB_CODE       = 9,   // Tab
     LF_CODE        = 10,  // Line feed
-    RETURN_CODE    = 13,  // Enter / Return (CR) 
-    ESC_CODE       = 27,  // Escape 
-    DELETE_CODE    = 127  // Delete (DEL) 
+    RETURN_CODE    = 13,  // Enter / Return (CR)
+    ESC_CODE       = 27,  // Escape
+    DELETE_CODE    = 127  // Delete (DEL)
 };
 
 /** Decode raw input units into a keypress */
@@ -1697,7 +1710,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
     if (b < 32 || b == DELETE_CODE) { // Control keys (ASCII control range or DEL)
         switch (b) {
             case TAB_CODE:    out->type = KEY_TAB; return;
-            case LF_CODE:     return; 
+            case LF_CODE:     return;
             case RETURN_CODE: out->type = KEY_RETURN; return;
             case BACKSPACE_CODE: // v fallthrough
             case DELETE_CODE: out->type = KEY_DELETE; return;
@@ -1705,7 +1718,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
                 inline_decode_escape(out);
                 return;
 
-            default: // Control codes are Ctrl+A → 1, Ctrl+Z → 26 
+            default: // Control codes are Ctrl+A → 1, Ctrl+Z → 26
                 if (b >= 1 && b <= 26) inline_keypresswithchar(out, KEY_CTRL, 'A' + (b - 1));
                 return;
         }
@@ -1721,11 +1734,11 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
 
 /** Obtain a keypress event */
 static bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
-    (void) edit; 
+    (void) edit;
     rawinput_t raw;
     if (!inline_readraw(&raw)) return false;
     inline_decode(&raw, out);
-    return true; 
+    return true;
 }
 
 /* **********************************************************************
@@ -1736,7 +1749,7 @@ static bool inline_readkeypress(inline_editor *edit, keypress_t *out) {
 static inline void inline_setcursorposn(inline_editor *edit, int new_posn) {
     if (new_posn < 0) new_posn = 0;
     if (new_posn > edit->grapheme_count) new_posn = edit->grapheme_count;
-    if (edit->cursor_posn == new_posn) return; 
+    if (edit->cursor_posn == new_posn) return;
     edit->refresh = true;
 
     int old_row;
@@ -1748,11 +1761,11 @@ static inline void inline_setcursorposn(inline_editor *edit, int new_posn) {
 
 /** Insert text into the buffer */
 static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes) {
-    if (!inline_extendbufferby(edit, nbytes)) return false; // Ensure capacity 
+    if (!inline_extendbufferby(edit, nbytes)) return false; // Ensure capacity
 
     size_t offset = 0; // Obtain the byte offset of the current cursor position
     if (edit->cursor_posn < edit->grapheme_count) offset = edit->graphemes[edit->cursor_posn];
-    else offset = edit->buffer_len; 
+    else offset = edit->buffer_len;
 
     // Move contents after the insertion point to make room for the inserted text
     memmove(edit->buffer + offset + nbytes, edit->buffer + offset, edit->buffer_len - offset);
@@ -1763,12 +1776,12 @@ static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes)
 
     int old_count = edit->grapheme_count; // Save grapheme count
     
-    inline_recomputegraphemes(edit); 
+    inline_recomputegraphemes(edit);
     inline_recomputelines(edit);
 
     // Move cursor forward by number of graphemes
-    int inserted_count = edit->grapheme_count - old_count; 
-    inline_setcursorposn(edit, edit->cursor_posn + (inserted_count > 0? inserted_count : 0)); 
+    int inserted_count = edit->grapheme_count - old_count;
+    inline_setcursorposn(edit, edit->cursor_posn + (inserted_count > 0? inserted_count : 0));
 
     edit->refresh = true; // Redraw
     return true;
@@ -1800,7 +1813,7 @@ static void inline_deletegrapheme(inline_editor *edit, int index) {
 
 /** Deletes selected text */
 static void inline_deleteselection(inline_editor *edit) {
-    int sel_l; 
+    int sel_l;
     size_t start, end;
     if (!inline_selectionrange(edit, &sel_l, NULL, &start, &end)) return;
 
@@ -1821,7 +1834,7 @@ static void inline_deletecurrent(inline_editor *edit) {
 static void inline_delete(inline_editor *edit) {
     if (edit->selection_posn != INLINE_INVALID) {
         inline_deleteselection(edit);
-    } else if (edit->cursor_posn > 0) { // Delete grapheme before cursor 
+    } else if (edit->cursor_posn > 0) { // Delete grapheme before cursor
         inline_deletegrapheme(edit, edit->cursor_posn - 1);
         inline_setcursorposn(edit, edit->cursor_posn - 1);
     } else inline_deletecurrent(edit);
@@ -1829,7 +1842,7 @@ static void inline_delete(inline_editor *edit) {
 
 /** Clear the buffer */
 static void inline_clear(inline_editor *edit) {
-    edit->buffer_len = 0; // Clear text buffer 
+    edit->buffer_len = 0; // Clear text buffer
     edit->buffer[0] = '\0';
     inline_recomputegraphemes(edit);
     inline_recomputelines(edit);
@@ -1862,12 +1875,12 @@ static void inline_pagedown(inline_editor *edit) {
 }
 
 static void inline_left(inline_editor *edit) {
-    if (edit->cursor_posn > 0) 
+    if (edit->cursor_posn > 0)
         inline_setcursorposn(edit, edit->cursor_posn - 1);
 }
 
 static void inline_right(inline_editor *edit) {
-    if (edit->cursor_posn < edit->grapheme_count) 
+    if (edit->cursor_posn < edit->grapheme_count)
         inline_setcursorposn(edit, edit->cursor_posn + 1);
 }
 
@@ -1883,7 +1896,7 @@ static void inline_clearselection(inline_editor *edit) {
 /** Copy selected text */
 static void inline_copyselection(inline_editor *edit) {
     size_t start, end;
-    if (inline_selectionrange(edit, NULL, NULL, &start, &end)) 
+    if (inline_selectionrange(edit, NULL, NULL, &start, &end))
         inline_copytoclipboard(edit, edit->buffer + start, end - start);
 }
 
@@ -1896,7 +1909,7 @@ static void inline_cutselection(inline_editor *edit) {
 /** Cut part of a line */
 static void inline_cutline(inline_editor *edit, bool before) {
     int row;
-    inline_cursorposn(edit, &row, NULL); 
+    inline_cursorposn(edit, &row, NULL);
     size_t b_line = edit->lines[row + (before ? 0 : 1)]; // line break position before or after
     size_t b_cursor = edit->graphemes[edit->cursor_posn]; // Cursor position
 
@@ -1940,7 +1953,7 @@ static void inline_transpose(inline_editor *edit) {
     if (!tmp) return;
 
     memcpy(tmp, edit->buffer + a_start, a_len); // Copy a into temporary buffer
-    memmove(edit->buffer + a_start, edit->buffer + b_start, b_len); // Copy b overwriting a 
+    memmove(edit->buffer + a_start, edit->buffer + b_start, b_len); // Copy b overwriting a
     memcpy(edit->buffer + a_start + b_len, tmp, a_len); // Copy a from the temporary buffer
 
     free(tmp);
@@ -1961,23 +1974,23 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
     switch (c) {
         case 'A': inline_home(edit); break;
         case 'B': inline_left(edit); break;
-        case 'C': inline_copyselection(edit); break; 
-        case 'D': 
+        case 'C': inline_copyselection(edit); break;
+        case 'D':
             inline_clearselection(edit);
             inline_deletecurrent(edit);
-            break; 
+            break;
         case 'E': inline_end(edit); break;
         case 'F': inline_right(edit); break;
         case 'G': return false; // exit on Ctrl-G
         case 'K': inline_cutline(edit, false); break; // Cut to end of line
-        case 'L': inline_clear(edit); break; 
+        case 'L': inline_clear(edit); break;
         case 'N': inline_historykey(edit, 1); break; // Next history
         case 'P': inline_historykey(edit, -1); break; // Previous history
-        case 'T': inline_transpose(edit); break; 
+        case 'T': inline_transpose(edit); break;
         case 'U': inline_cutline(edit, true); break; // Cut to start of line
-        case 'X': inline_cutselection(edit); break; 
+        case 'X': inline_cutselection(edit); break;
         case 'Y': // v fallthrough
-        case 'V': inline_paste(edit); break; 
+        case 'V': inline_paste(edit); break;
         default: break;
     }
     edit->refresh = true;
@@ -1988,31 +2001,31 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
 static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     bool generatesuggestions=true, clearselection=true, endbrowsing=true;
     switch (key->type) {
-        case KEY_RETURN: 
+        case KEY_RETURN:
             if (!edit->multiline_fn ||
                 !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
             if (!inline_insert(edit, "\n", 1)) return false;
             generatesuggestions = false;  // newline shouldn't trigger suggestion
             break;
         case KEY_LEFT:   inline_left(edit); break;
-        case KEY_RIGHT:  
+        case KEY_RIGHT:
             if (edit->suggestion_shown) {
                 inline_applysuggestion(edit);
                 generatesuggestions = false;
                 break;
             }
-            inline_right(edit);        
+            inline_right(edit);
             break;
-        case KEY_SHIFT_LEFT: 
+        case KEY_SHIFT_LEFT:
             inline_beginselection(edit);
             inline_left(edit);
-            clearselection=false; 
-            break; 
-        case KEY_SHIFT_RIGHT: 
+            clearselection=false;
+            break;
+        case KEY_SHIFT_RIGHT:
             inline_beginselection(edit);
             inline_right(edit);
-            clearselection=false; 
-            break; 
+            clearselection=false;
+            break;
         case KEY_UP:
             inline_historykey(edit, -1);
             endbrowsing=false;
@@ -2023,23 +2036,23 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             break;
         case KEY_HOME:      inline_home(edit);       break;
         case KEY_END:       inline_end(edit);        break;
-        case KEY_PAGE_UP:   inline_pageup(edit);     break; 
+        case KEY_PAGE_UP:   inline_pageup(edit);     break;
         case KEY_PAGE_DOWN: inline_pagedown(edit);   break;
         case KEY_DELETE:    inline_delete(edit);     break;
         case KEY_TAB:
             if (inline_havesuggestions(edit)) {
                 inline_advancesuggestions(edit, 1);
-                generatesuggestions=false; 
+                generatesuggestions=false;
             } else if (!inline_insert(edit, "\t", 1)) return false;
-            break; 
+            break;
         case KEY_SHIFT_TAB:
             if (inline_havesuggestions(edit)) {
                 inline_advancesuggestions(edit, -1);
-                generatesuggestions=false; 
+                generatesuggestions=false;
             }
-            break; 
+            break;
         case KEY_CTRL:  return inline_processshortcut(edit, key->c[0]);
-        case KEY_CHARACTER: 
+        case KEY_CHARACTER:
             if (!inline_insert(edit, (char *) key->c, key->nbytes)) return false;
             break;
         case KEY_UNKNOWN:
@@ -2088,19 +2101,26 @@ static void inline_unsupported(inline_editor *edit) {
 static void inline_supported(inline_editor *edit) {
     inline_reset(edit);
     inline_setutf8();
-    if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode 
+    if (!inline_enablerawmode(edit)) return;  // Could not enter raw mode
     inline_updateterminalwidth(edit);
     inline_initviewport(edit);
     inline_redraw(edit);
 
-    keypress_t key; 
+    keypress_t key;
     while (inline_readkeypress(edit, &key)) {
         if (!inline_processkeypress(edit, &key)) break;
 
-        if (edit->refresh || resize_pending) { 
-            inline_redraw(edit); 
-            edit->refresh = false; 
+        if (resize_pending) {
+            /* Update terminal width and viewport on resize */
+            inline_updateterminalwidth(edit);
+            inline_updateviewportwidth(edit);
+            edit->refresh = true; // Ensure we redraw after resize
             resize_pending = 0;
+        }
+        
+        if (edit->refresh) {
+            inline_redraw(edit);
+            edit->refresh = false;
         }
     }
 
@@ -2109,7 +2129,7 @@ static void inline_supported(inline_editor *edit) {
     inline_redraw(edit);
     inline_disablerawmode(edit);
 
-    if (edit->buffer_len > 0) inline_addhistory(edit, edit->buffer); // Add to history if non-empty 
+    if (edit->buffer_len > 0) inline_addhistory(edit, edit->buffer); // Add to history if non-empty
     write(STDOUT_FILENO, "\r\n", 2);
 }
 
@@ -2120,7 +2140,7 @@ static void inline_supported(inline_editor *edit) {
 char *inline_readline(inline_editor *edit) {
     if (!edit) return NULL;
 
-    edit->buffer_len = 0; // Reset buffer 
+    edit->buffer_len = 0; // Reset buffer
     edit->buffer[0] = '\0';
 
     if (!inline_checktty()) {

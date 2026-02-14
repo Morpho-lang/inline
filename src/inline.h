@@ -46,8 +46,8 @@ typedef struct inline_editor inline_editor;
  *           if the buffer ends with "pr", a suggestion might be
  *           "int" to form "print".
  *
- *  @note The callback owns the returned string; it may therefore 
- *        return pointers to static strings or internal buffers. 
+ *  @note The callback owns the returned string; it may therefore
+ *        return pointers to static strings or internal buffers.
  *        The editor copies the suggestion immediately. */
 typedef const char *(*inline_completefn) (const char *utf8, void *ref, size_t *index);
 
@@ -61,7 +61,7 @@ typedef struct {
     int color;     /* Index into color palette */
 } inline_colorspan_t;
 
-/** @brief Syntax coloring callback function, called repeatedly by 
+/** @brief Syntax coloring callback function, called repeatedly by
  *         the editor to obtain the next colored span.
  *  @param[in]  utf8    The full buffer encoded as UTF-8 to analyze.
  *  @param[in]  ref     User-supplied reference pointer.
@@ -76,8 +76,8 @@ typedef bool (*inline_syntaxcolorfn) (const char *utf8, void *ref, size_t offset
  * ----------------------- */
 
 /** @brief Multiline callback function
- * Called when inline wants to know whether it should enter multiline mode. 
- * The callback should parse the input and return true if inline should go to 
+ * Called when inline wants to know whether it should enter multiline mode.
+ * The callback should parse the input and return true if inline should go to
  * multiline mode or false otherwise.
  *  @param[in] utf8   The full buffer encoded as UTF-8.
  *  @param[in] ref    User-supplied reference pointer.
@@ -93,8 +93,8 @@ typedef bool (*inline_multilinefn) (const char *utf8, void *ref);
  *  @param[in]  in         - a string
  *  @param[in]  end        - end of string
  *  @returns number of bytes in the next grapheme or 0 if incomplete
- *  @details If provided, inline will use this function to split UTF8 code 
- *           into graphemes. Shims are provided in the documentation for 
+ *  @details If provided, inline will use this function to split UTF8 code
+ *           into graphemes. Shims are provided in the documentation for
  *           libgrapheme and libunistring. A fallback implementation is used
  *           if not provided. */
 typedef size_t (*inline_graphemefn) (const char *in, const char *end);
@@ -108,7 +108,7 @@ typedef size_t (*inline_graphemefn) (const char *in, const char *end);
 typedef int (*inline_widthfn)(const char *g, size_t len);
 
 /* **********************************************************************
- * Public API
+ * Core API
  * ********************************************************************** */
 
 /** @brief Create a new line editor.
@@ -122,19 +122,19 @@ void inline_free(inline_editor *edit);
 
 /** @brief Read a line of input from the terminal.
  *  @param[in] edit   Line editor to use.
- *  @returns A heap allocated UTF-8 string containing the user's input, or NULL on EOF or error. 
+ *  @returns A heap allocated UTF-8 string containing the user's input, or NULL on EOF or error.
  *           Caller owns the string and must call it later using free(). */
 char *inline_readline(inline_editor *edit);
 
 /** @brief Sets the maximum length of the history.
- *  @param[in] edit   Line editor to configure. 
- *  @param[in] maxlen Maximum number of entries in the history buffer; 
+ *  @param[in] edit   Line editor to configure.
+ *  @param[in] maxlen Maximum number of entries in the history buffer;
  *                    negative values mean unlimited; 0 disables history */
 void inline_sethistorylength(inline_editor *edit, int maxlen);
 
 /** @brief Adds an entry to the history.
- *  @param[in] edit   Line editor to use. 
- *  @param[in] entry  Entry to add. This is copied immediately and the pointer is not stored. 
+ *  @param[in] edit   Line editor to use.
+ *  @param[in] entry  Entry to add. This is copied immediately and the pointer is not stored.
  *  @returns true if the entry was successfully added to the history list; false otherwise */
 bool inline_addhistory(inline_editor *edit, const char *entry);
 
@@ -170,10 +170,10 @@ void inline_syntaxcolor(inline_editor *edit, inline_syntaxcolorfn fn, void *ref)
 /** @brief Set the color palette used for syntax highlighting.
  *
  *  Color indices returned by a inline_syntaxcolorfn are mapped
- *  through this palette to a final color value. The palette is copied by 
+ *  through this palette to a final color value. The palette is copied by
  *  the inline_editor. Color values are interpreted:
  *
- *      -1            → default color 
+ *      -1            → default color
  *       0–7          → ANSI basic colors (see macros above)
  *       8–255        → 256-color palette
  *       >=0x01000000 → RGB packed as 0x01RRGGBB
@@ -194,7 +194,7 @@ void inline_autocomplete(inline_editor *edit, inline_completefn fn, void *ref);
  *  @param[in] edit                 Line editor to configure.
  *  @param[in] fn                   Multiline callback.
  *  @param[in] ref                  User-supplied reference pointer.
- *  @param[in] continuation_prompt  Prompt to use for continuation lines; this is copied immediately and you may free/modify after. 
+ *  @param[in] continuation_prompt  Prompt to use for continuation lines; this is copied immediately and you may free/modify after.
  *  @returns true on success; false otherwise */
 bool inline_multiline(inline_editor *edit, inline_multilinefn fn, void *ref, const char *continuation_prompt);
 
@@ -208,13 +208,33 @@ void inline_setgraphemesplitter(inline_editor *edit, inline_graphemefn fn);
  *  @param[in] fn                   Grapheme display width callback. */
 void inline_setgraphemewidth(inline_editor *edit, inline_widthfn fn);
 
-/** @brief Display a UTF-8 string using syntax coloring.
- *  @param[in] edit     Line editor to use.
- *  @param[in] string   UTF-8 string to display.*/
-void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string);
+/* **********************************************************************
+ * Terminal helpers
+ * ********************************************************************** */
 
 /** @brief Check whether stdin and stdout are TTYs.
  *  @returns true if both stdin and stdout are terminals. */
 bool inline_checktty(void);
+
+/** @brief Check is the terminal is supported (i.e. likely capable of processed output)
+ *  @returns true if supported. */
+bool inline_checksupported(void);
+
+/** @brief Gets the current width of the terminal.
+ *  @param[out] width - the width of the terminal, only set if successfully retrieved.
+ *  @returns true on success. */
+bool inline_getterminalwidth(int *width);
+
+/** @brief Set UTF8 mode. */
+void inline_setutf8(void);
+
+/** @brief Emits a terminal control code to stdout corresponding to a given palette color.
+ *  @param[in] color - Color to emit in the format used for inline_setpalette above.*/
+void inline_emitcolor(int color);
+
+/** @brief Display a UTF-8 string using syntax coloring.
+ *  @param[in] edit     Line editor to use.
+ *  @param[in] string   UTF-8 string to display.*/
+void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string);
 
 #endif /* INLINE_H */
