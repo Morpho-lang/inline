@@ -287,14 +287,14 @@ bool inline_getterminalwidth(int *width) {
     CONSOLE_SCREEN_BUFFER_INFO csbi;
 
     if (GetConsoleScreenBufferInfo(h, &csbi)) {
-        *width=csbi.srWindow.Right - csbi.srWindow.Left + 1;
+        if (width) *width=csbi.srWindow.Right - csbi.srWindow.Left + 1;
         return true;
     }
 #else
     struct winsize ws;
 
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != -1 && ws.ws_col > 0) {
-        *width=ws.ws_col;
+        if (width) *width=ws.ws_col;
         return true;
     }
 #endif

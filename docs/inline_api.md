@@ -2,7 +2,7 @@
 
 Inline is a small, grapheme-aware line editor designed for embedding in other applications. It provides a modern text model and features such as syntax highlighting, history, autocomplete, copy/paste, and multiline editing, while remaining lightweight and portable.
 
-This document describes the complete inline API; the 13 API functions are also documented in inline.h. An example application that reads lines of C source code with all features is provided to illustrate how to implement callbacks required by the API. 
+This document describes the complete inline API; the 11 core API functions and some additional helpers are also documented in inline.h. An example application that reads lines of C source code with all features is provided to illustrate how to implement callbacks required by the API. 
 
 In this document, “grapheme” refers to a Unicode extended grapheme cluster as defined by Unicode Standard Annex #29.
 
@@ -246,6 +246,42 @@ The first,
 ```
 
 returns `true` if both `stdin` and `stdout` refer to terminal devices capable of interactive input and output, and `false` otherwise. This can be used to detect whether the application is running in an interactive terminal or whether input or output has been redirected (for example, via a UNIX pipe or file).
+
+A second function,
+
+```c
+    bool inline_checksupported(void);
+```
+
+returns `true` if the current terminal is likely capable of processed output, i.e. VT100 escape sequences, etc. This can be used to detect whether the terminal application should use such sequences. 
+
+To get the width of the terminal, use
+
+```c
+    bool inline_getterminalwidth(int *width);
+```
+
+which sets the contents of `width` to the width of the terminal in columns and returns `true` on success. If the operation fails, `width` is not modified; the caller could use a default value in this case, for example.
+
+To ensure the terminal is in UTF8 mode (necessary on windows),
+
+```c
+    void inline_setutf8(void);
+```
+
+To emit a string to `stdout` using the same mechanism as `inline`, use,
+
+```c
+    void inline_emit(const char *str);
+```
+
+To emit a control code corresponding to a given palette color, 
+
+```c
+    void inline_emitcolor(int color);
+```
+
+The color is supplied in the format used for `inline_setpalette` above.
 
 To display a string using inline’s syntax highlighting mechanism without enabling interactive editing, use: 
 
