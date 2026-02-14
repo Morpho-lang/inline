@@ -662,40 +662,47 @@ static size_t inline_matchcodepoint(size_t table_count, const codepoint_t *table
     return 0; // no match
 }
 
-/** Minimal grapheme splitter */
+/** Minimal heuristic grapheme splitter */
 static size_t inline_graphemesplit(const char *in, const char *end) {
-    const unsigned char *p =  (const unsigned char *) in,
-                        *uend = (const unsigned char *) end;
-    if (p >= uend) return 0; // At end already
+    const unsigned char *p = (const unsigned char *)in;
+    const unsigned char *uend = (const unsigned char *)end;
+    if (p >= uend) return 0;
 
-    // Read first codepoint
+    // Decode first codepoint
     size_t len = inline_utf8length(*p);
-    if (len == 0) len = 1; // Recover from malformed utf8 codepoint
+    if (len == 0) len = 1;
     if ((size_t)(uend - p) < len) return (size_t)(uend - p);
+
+    const unsigned char *prev = p;   // remember start of previous codepoint
     p += len;
 
-    // Combining diacritical marks U+0300–U+036F (accents, etc.)
-    while (p < uend && *p >= 0xCC && *p <= 0xCF) {
+    while (p < uend && *p >= 0xCC && *p <= 0xCF) { // Combining marks
         len = inline_utf8length(*p);
         if (len == 0 || (size_t)(uend - p) < len) break;
+        prev = p;
         p += len;
     }
 
-    do { // Skip past suffix extenders
+    do { // Suffix extenders
         len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend);
-        p += len;
-    } while (len!=0);
+        if (len) {
+            prev = p;
+            p += len;
+        }
+    } while (len != 0);
 
-    for (;;) { // Joiners (ZWJ sequences)
-        len = inline_matchcodepoint(joiners_count, joiners, p, uend);
-        if (len == 0) break;
+    for (;;) { // ZWJ joiners — only join if prev and next are non-ASCII
+        len = inline_matchcodepoint(joiners_count, joiners, p, uend); // Check for ZWJ
         p += len;
+        if (p >= uend || len ==0) break;
 
-        if (p >= uend) break;
+        size_t next_len = inline_utf8length(*p); // Decode next codepoint
+        if (next_len == 0 || (size_t)(uend - p) < next_len) break;
 
-        len = inline_utf8length((unsigned char)*p); // Process joined codepoint
-        if (len == 0 || (size_t)(uend - p) < len) break;
-        p += len;
+        if (*prev < 0x80 || *p < 0x80) break; // Only join if both sides are non-ASCII
+
+        prev = p;
+        p += next_len;
     }
 
     return (size_t)(p - (const unsigned char *)in);
