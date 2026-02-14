@@ -228,6 +228,10 @@ bool inline_getterminalwidth(int *width);
 /** @brief Set UTF8 mode. */
 void inline_setutf8(void);
 
+/** @brief Emits a string to stdout.
+ *  @param[in] str - String to emit.*/
+void inline_emit(char *str);
+
 /** @brief Emits a terminal control code to stdout corresponding to a given palette color.
  *  @param[in] color - Color to emit in the format used for inline_setpalette above.*/
 void inline_emitcolor(int color);
@@ -238,3 +242,4 @@ void inline_emitcolor(int color);
 void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string);
 
 #endif /* INLINE_H */
+
