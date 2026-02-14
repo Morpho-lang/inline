@@ -75,7 +75,7 @@ The editor follows common readline-style conventions where possible, with full U
 |            | `Ctrl+U`                      | Delete from beginning of line to cursor           |
 |            | `Enter`                       | Accept line (or insert newline in multiline mode) |
 | Selection  | `Shift+←` / `Shift+→`         | Extend selection left / right                     |
-|            | `Ctrl+O`                      | Copy selection                                    |
+|            | `Ctrl+O` / `Alt+W`            | Copy selection                                    |
 |            | `Ctrl+X`                      | Cut selection                                     |
 |            | `Ctrl+V`                      | Paste clipboard contents                          |
 | History    | `↑` / `↓`                     | Previous / next history entry                     |

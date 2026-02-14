@@ -1537,19 +1537,22 @@ static int inline_translatekeypress(const KEY_EVENT_RECORD *k, unsigned char out
         }
     }
 
+    // Alt characters
+    int i=0; 
+    if (mods & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) {
+        out[i++] = '\x1b'; // Prefix character with esc
+    }
+
     if (wc != 0) { // Unicode
         if (wc < 0x80) {
-            out[0] = (unsigned char)wc;
-            return 1;
+            out[i++] = (unsigned char)wc;
         } else if (wc < 0x800) {
-            out[0] = (unsigned char)(0xC0 | ((unsigned int)wc >> 6));
-            out[1] = (unsigned char)(0x80 | ((unsigned int)wc & 0x3F));
-            return 2;
+            out[i++] = (unsigned char)(0xC0 | ((unsigned int)wc >> 6));
+            out[i++] = (unsigned char)(0x80 | ((unsigned int)wc & 0x3F));
         } else if (wc < 0xD800 || wc > 0xDFFF) {
-            out[0] = 0xE0 | (wc >> 12);
-            out[1] = 0x80 | ((wc >> 6) & 0x3F);
-            out[2] = 0x80 | (wc & 0x3F);
-            return 3;
+            out[i++] = 0xE0 | (wc >> 12);
+            out[i++] = 0x80 | ((wc >> 6) & 0x3F);
+            out[i++] = 0x80 | (wc & 0x3F);
         } else if (wc >= 0xD800 && wc <= 0xDBFF) { // high surrogate
             // Need the next KEY_EVENT for the low surrogate
             KEY_EVENT_RECORD next;
@@ -1558,16 +1561,15 @@ static int inline_translatekeypress(const KEY_EVENT_RECORD *k, unsigned char out
             WCHAR wc2 = next.uChar.UnicodeChar;
             if (wc2 >= 0xDC00 && wc2 <= 0xDFFF) {
                 uint32_t cp = 0x10000 + (((wc - 0xD800) << 10) | (wc2 - 0xDC00));
-                out[0] = (unsigned char) (0xF0 | (cp >> 18));
-                out[1] = (unsigned char) (0x80 | ((cp >> 12) & 0x3F));
-                out[2] = (unsigned char) (0x80 | ((cp >> 6) & 0x3F));
-                out[3] = (unsigned char) (0x80 | (cp & 0x3F));
-                return 4;
+                out[i++] = (unsigned char) (0xF0 | (cp >> 18));
+                out[i++] = (unsigned char) (0x80 | ((cp >> 12) & 0x3F));
+                out[i++] = (unsigned char) (0x80 | ((cp >> 6) & 0x3F));
+                out[i++] = (unsigned char) (0x80 | (cp & 0x3F));
             }
         }
     }
 
-    return 0; // Unknown key → ignore
+    return i; // Return 
 }
 
 #endif
@@ -1611,7 +1613,7 @@ typedef enum {
     KEY_HOME, KEY_END,               // Home and End
     KEY_PAGE_UP, KEY_PAGE_DOWN,      // Page up and page down
     KEY_SHIFT_LEFT, KEY_SHIFT_RIGHT, // Shift+arrow key
-    KEY_CTRL
+    KEY_CTRL, KEY_ALT                // Ctrl, meta keys
 } keytype_t;
 
 /** A single keypress event obtained and processed by the terminal */
@@ -1631,6 +1633,21 @@ static void inline_keypresswithchar(keypress_t *keypress, keytype_t type, char c
     keypress->type=type;
     keypress->c[0]=c; keypress->c[1]='\0';
     keypress->nbytes=1;
+}
+
+/** Decode sequence of characters into a utf8 character */
+static void inline_decode_utf8(unsigned char first, keypress_t *out) {
+    out->nbytes = inline_utf8length(first);
+
+    if (!out->nbytes) return; // Invalid first byte or stray continuation
+
+    out->c[0] = first;
+    for (int i=1; i<out->nbytes; i++) {
+        if (!inline_readraw(&out->c[i])) { out->c[i] = '\0'; return; }
+    }
+
+    out->c[out->nbytes] = '\0';
+    out->type = KEY_CHARACTER;
 }
 
 /** Map from terminal codes to keytype_t  */
@@ -1658,10 +1675,15 @@ static void inline_decode_escape(keypress_t *out) {
     int i = 0;
     out->type = KEY_UNKNOWN;
 
-    // Expect '['
-    if (!inline_readraw(&seq[i]) || seq[0] != '[') { return; }
+    if (!inline_readraw(&seq[i])) return; // Read byte after esc
 
-    // Read until alpha terminator
+    if (seq[0] !='[') { // Is this an alt + char combo?
+        inline_decode_utf8(seq[0], out);
+        out->type=KEY_ALT; // Override type
+        return;
+    }
+
+    // It's an escape code, so read until alpha terminator
     for (i = 1; i < INLINE_ESCAPECODE_MAXLENGTH - 1; i++) {
         if (!inline_readraw(&seq[i])) break;
         if (isalpha(seq[i]) || seq[i] == '~') break;
@@ -1675,21 +1697,6 @@ static void inline_decode_escape(keypress_t *out) {
             return;
         }
     }
-}
-
-/** Decode sequence of characters into a utf8 character */
-static void inline_decode_utf8(unsigned char first, keypress_t *out) {
-    out->nbytes = inline_utf8length(first);
-
-    if (!out->nbytes) return; // Invalid first byte or stray continuation
-
-    out->c[0] = first;
-    for (int i=1; i<out->nbytes; i++) {
-        if (!inline_readraw(&out->c[i])) { out->c[i] = '\0'; return; }
-    }
-
-    out->c[out->nbytes] = '\0';
-    out->type = KEY_CHARACTER;
 }
 
 /** Raw control codes produced by POSIX terminals */
@@ -1976,7 +1983,7 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
         case 'B': inline_left(edit); break;
         case 'D':
             inline_clearselection(edit);
-            inline_deletecurrent(edit);
+            inline_deletecurrent(edit); 
             break;
         case 'E': inline_end(edit); break;
         case 'F': inline_right(edit); break;
@@ -1991,6 +1998,17 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
         case 'X': inline_cutselection(edit); break;
         case 'Y': // v fallthrough
         case 'V': inline_paste(edit); break;
+        default: break;
+    }
+    edit->refresh = true;
+    return true;
+}
+
+/** Handle Meta + _ shortcuts; upper case versions indicate Shift + Meta + _ */
+static bool inline_processmeta(inline_editor *edit, const unsigned char *c, int nbytes) {
+    (void) nbytes; 
+    switch (*c) {
+        case 'w': case 'W': inline_copyselection(edit); break;
         default: break;
     }
     edit->refresh = true;
@@ -2052,6 +2070,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             }
             break;
         case KEY_CTRL:  return inline_processshortcut(edit, key->c[0]);
+        case KEY_ALT:   return inline_processmeta(edit, key->c, key->nbytes);
         case KEY_CHARACTER:
             if (!inline_insert(edit, (char *) key->c, key->nbytes)) return false;
             break;
