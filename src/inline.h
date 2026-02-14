@@ -230,7 +230,7 @@ void inline_setutf8(void);
 
 /** @brief Emits a string to stdout.
  *  @param[in] str - String to emit.*/
-void inline_emit(char *str);
+void inline_emit(const char *str);
 
 /** @brief Emits a terminal control code to stdout corresponding to a given palette color.
  *  @param[in] color - Color to emit in the format used for inline_setpalette above.*/
