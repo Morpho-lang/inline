@@ -62,7 +62,8 @@ typedef struct {
 } inline_colorspan_t;
 
 /** @brief Syntax coloring callback function, called repeatedly by
- *         the editor to obtain the next colored span.
+ *         the editor to obtain the next colored span. The span is assumed 
+ *         to begin as offset.
  *  @param[in]  utf8    The full buffer encoded as UTF-8 to analyze.
  *  @param[in]  ref     User-supplied reference pointer.
  *  @param[in]  offset  Byte offset at which to begin scanning.

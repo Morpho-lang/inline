@@ -620,6 +620,19 @@ static inline int inline_utf8length(unsigned char b) {
     return 0;                              // Invalid or continuation
 }
 
+/** Decode utf8 into an integer */
+static inline uint32_t inline_utf8decode(const unsigned char *p) {
+    int len = inline_utf8length(*p);
+    switch (len) {
+        case 1: return p[0];
+        case 2: return ((p[0] & 0x1F) << 6) |  (p[1] & 0x3F);
+        case 3: return ((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+        case 4: return ((p[0] & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) |  (p[3] & 0x3F);
+        default: break; 
+    }
+    return 0;
+}
+
 /** Codepoint definition */
 typedef struct {
     const unsigned char *seq;
@@ -662,47 +675,72 @@ static size_t inline_matchcodepoint(size_t table_count, const codepoint_t *table
     return 0; // no match
 }
 
+/** Check if a codepoint is extended pictographic */
+static bool inline_isextendedpictographic(uint32_t cp) {
+    if (cp >= 0x1F300 && cp <= 0x1FAFF) return true; // Emoji blocks
+    if (cp >= 0x2600 && cp <= 0x26FF) return true; // Misc symbols
+    if (cp >= 0x2700 && cp <= 0x27BF) return true; // Dingbats
+    return false;
+}
+
 /** Minimal heuristic grapheme splitter */
 static size_t inline_graphemesplit(const char *in, const char *end) {
     const unsigned char *p = (const unsigned char *)in;
     const unsigned char *uend = (const unsigned char *)end;
     if (p >= uend) return 0;
 
-    // Decode first codepoint
-    size_t len = inline_utf8length(*p);
+    size_t len = inline_utf8length(*p); // Decode first codepoint
     if (len == 0) len = 1;
     if ((size_t)(uend - p) < len) return (size_t)(uend - p);
 
-    const unsigned char *prev = p;   // remember start of previous codepoint
+    const unsigned char *prev = p;  // start of previous codepoint
+    uint32_t prev_cp = inline_utf8decode(p);
     p += len;
 
     while (p < uend && *p >= 0xCC && *p <= 0xCF) { // Combining marks
         len = inline_utf8length(*p);
         if (len == 0 || (size_t)(uend - p) < len) break;
+
         prev = p;
+        prev_cp = inline_utf8decode(p);
         p += len;
     }
 
-    do { // Suffix extenders
+    do { // Emoji modifiers / VS16 / keycap extenders
         len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend);
         if (len) {
             prev = p;
+            prev_cp = inline_utf8decode(p);
             p += len;
         }
     } while (len != 0);
 
-    for (;;) { // ZWJ joiners — only join if prev and next are non-ASCII
+    for (;;) { // ZWJ sequences
         len = inline_matchcodepoint(joiners_count, joiners, p, uend); // Check for ZWJ
-        p += len;
-        if (p >= uend || len ==0) break;
+        if (len == 0) break;
+
+        p += len;  // Skip ZWJ itself
+        if (p >= uend) break;
 
         size_t next_len = inline_utf8length(*p); // Decode next codepoint
         if (next_len == 0 || (size_t)(uend - p) < next_len) break;
 
-        if (*prev < 0x80 || *p < 0x80) break; // Only join if both sides are non-ASCII
+        uint32_t next_cp = inline_utf8decode(p);
 
-        prev = p;
+        // Only join if both sides are emoji (extended pictographic)
+        if (!inline_isextendedpictographic(prev_cp) ||
+            !inline_isextendedpictographic(next_cp)) break;
+
+        prev = p; // Join: consume next codepoint
+        prev_cp = next_cp;
         p += next_len;
+
+        size_t slen; // Consume suffix extenders 
+        while ((slen = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend)) != 0) {
+            prev = p;
+            prev_cp = inline_utf8decode(p);
+            p += slen;
+        }
     }
 
     return (size_t)(p - (const unsigned char *)in);
