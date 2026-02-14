@@ -1615,7 +1615,7 @@ static bool inline_readraw(rawinput_t *out) {
 /** Identifies the type of keypress */
 typedef enum {
     KEY_UNKNOWN, KEY_CHARACTER,
-    KEY_RETURN, KEY_TAB, KEY_SHIFT_TAB, KEY_DELETE,
+    KEY_RETURN, KEY_CTRL_RETURN, KEY_TAB, KEY_SHIFT_TAB, KEY_DELETE,
     KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT,   // Arrow keys
     KEY_HOME, KEY_END,               // Home and End
     KEY_PAGE_UP, KEY_PAGE_DOWN,      // Page up and page down
@@ -1724,7 +1724,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
     if (b < 32 || b == DELETE_CODE) { // Control keys (ASCII control range or DEL)
         switch (b) {
             case TAB_CODE:    out->type = KEY_TAB; return;
-            case LF_CODE:     return;
+            case LF_CODE:     out->type = KEY_CTRL_RETURN; return;
             case RETURN_CODE: out->type = KEY_RETURN; return;
             case BACKSPACE_CODE: // v fallthrough
             case DELETE_CODE: out->type = KEY_DELETE; return;
@@ -2028,6 +2028,7 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
         case KEY_RETURN:
             if (!edit->multiline_fn ||
                 !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
+        case KEY_CTRL_RETURN: // v fallthrough
             if (!inline_insert(edit, "\n", 1)) return false;
             generatesuggestions = false;  // newline shouldn't trigger suggestion
             break;
