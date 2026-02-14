@@ -1974,7 +1974,6 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
     switch (c) {
         case 'A': inline_home(edit); break;
         case 'B': inline_left(edit); break;
-        case 'C': inline_copyselection(edit); break;
         case 'D':
             inline_clearselection(edit);
             inline_deletecurrent(edit);
@@ -1985,6 +1984,7 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
         case 'K': inline_cutline(edit, false); break; // Cut to end of line
         case 'L': inline_clear(edit); break;
         case 'N': inline_historykey(edit, 1); break; // Next history
+        case 'O': inline_copyselection(edit); break;
         case 'P': inline_historykey(edit, -1); break; // Previous history
         case 'T': inline_transpose(edit); break;
         case 'U': inline_cutline(edit, true); break; // Cut to start of line
