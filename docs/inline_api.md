@@ -40,7 +40,7 @@ A challenge for working with text is that the user's perception of what constitu
 
 Emoji can have very complex representations. For example, emoji can have modifiable skin tones like 👍🏽, which is represented by the sequence F0 9F 91 8D (👍 'thumbs up') followed by F0 9F 8F BD (medium skin tone modifier). The emoji 👨‍👩‍👧‍👦, depicting a possible family, is actually seven codepoints and 25 bytes. 
 
-In each of these cases, the user would expect a user interface to treat these characters as a single coherent unit, which is called a "grapheme". They may well be unaware of the complexities of text representation, and could have obtained a grapheme from a number of sources such as selecting it from a menu or copying or pasted from the web.
+In each of these cases, the user would expect a user interface to treat these characters as a single coherent unit, which is called a "grapheme". They may well be unaware of the complexities of text representation, and could have obtained a grapheme from a number of sources such as selecting it from a menu or copying and pasting from the web.
 
 Any functional line editor must be able to separate the user's input into its constituent graphemes, and use these as the fundamental unit of navigation. 
 

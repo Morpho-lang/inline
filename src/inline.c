@@ -1780,15 +1780,13 @@ static bool inline_insert(inline_editor *edit, const char *bytes, size_t nbytes)
     memcpy(edit->buffer + offset, bytes, nbytes); // Copy new text into buffer
     edit->buffer_len += nbytes;
     edit->buffer[edit->buffer_len] = '\0'; // Ensure null-terminated
-
-    int old_count = edit->grapheme_count; // Save grapheme count
     
     inline_recomputegraphemes(edit);
     inline_recomputelines(edit);
 
-    // Move cursor forward by number of graphemes
-    int inserted_count = edit->grapheme_count - old_count;
-    inline_setcursorposn(edit, edit->cursor_posn + (inserted_count > 0? inserted_count : 0));
+    // Move cursor to end of inserted text
+    int newpos = inline_findgraphemeindex(edit, offset + nbytes);
+    inline_setcursorposn(edit, newpos);
 
     edit->refresh = true; // Redraw
     return true;
