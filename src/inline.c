@@ -1986,6 +1986,7 @@ static bool inline_processshortcut(inline_editor *edit, char c) {
     switch (c) {
         case 'A': inline_home(edit); break;
         case 'B': inline_left(edit); break;
+        case 'C': inline_clear(edit); return false; // exit on Ctrl-C
         case 'D':
             inline_clearselection(edit);
             inline_deletecurrent(edit); 
