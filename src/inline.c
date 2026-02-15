@@ -1924,7 +1924,7 @@ static void inline_right(inline_editor *edit) {
         inline_setcursorposn(edit, edit->cursor_posn + 1);
 }
 
-/** Selection */
+/** Selections */
 static void inline_beginselection(inline_editor *edit) {
     if (edit->selection_posn==INLINE_INVALID) edit->selection_posn = edit->cursor_posn;
 }
@@ -2054,20 +2054,17 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
     bool generatesuggestions=true, clearselection=true, endbrowsing=true;
     switch (key->type) {
         case KEY_RETURN:
-            if (!edit->multiline_fn ||
-                !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
+            if (!edit->multiline_fn || !edit->multiline_fn(edit->buffer, edit->multiline_ref)) return false;
         case KEY_CTRL_RETURN: // v fallthrough
             if (!inline_insert(edit, "\n", 1)) return false;
             generatesuggestions = false;  // newline shouldn't trigger suggestion
             break;
-        case KEY_LEFT:   inline_left(edit); break;
+        case KEY_LEFT:          inline_left(edit); break;
         case KEY_RIGHT:
             if (edit->suggestion_shown) {
                 inline_applysuggestion(edit);
                 generatesuggestions = false;
-                break;
-            }
-            inline_right(edit);
+            } else inline_right(edit);
             break;
         case KEY_SHIFT_LEFT:
             inline_beginselection(edit);
@@ -2079,14 +2076,8 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
             inline_right(edit);
             clearselection=false;
             break;
-        case KEY_UP:
-            inline_historykey(edit, -1);
-            endbrowsing=false;
-            break;
-        case KEY_DOWN:
-            inline_historykey(edit, +1);
-            endbrowsing=false;
-            break;
+        case KEY_UP:        inline_historykey(edit, -1); endbrowsing=false; break;
+        case KEY_DOWN:      inline_historykey(edit, +1); endbrowsing=false; break;
         case KEY_HOME:      inline_home(edit);       break;
         case KEY_END:       inline_end(edit);        break;
         case KEY_PAGE_UP:   inline_pageup(edit);     break;
@@ -2104,13 +2095,12 @@ static bool inline_processkeypress(inline_editor *edit, const keypress_t *key) {
                 generatesuggestions=false;
             }
             break;
-        case KEY_CTRL:  return inline_processshortcut(edit, key->c[0]);
-        case KEY_ALT:   return inline_processmeta(edit, key->c, key->nbytes);
+        case KEY_CTRL:      return inline_processshortcut(edit, key->c[0]);
+        case KEY_ALT:       return inline_processmeta(edit, key->c, key->nbytes);
         case KEY_CHARACTER:
             if (!inline_insert(edit, (char *) key->c, key->nbytes)) return false;
             break;
-        case KEY_UNKNOWN:
-            break;
+        case KEY_UNKNOWN:   break;
     }
 
     if (clearselection) inline_clearselection(edit);
@@ -2144,9 +2134,7 @@ static void inline_unsupported(inline_editor *edit) {
     inline_noterminal(edit);
 
     int length = (int)edit->buffer_len - 1; // Strip trailing control characters
-    while (length >= 0 && iscntrl((unsigned char)edit->buffer[length])) {
-        edit->buffer[length--] = '\0';
-    }
+    while (length >= 0 && iscntrl((unsigned char)edit->buffer[length])) edit->buffer[length--] = '\0';
 
     edit->buffer_len = length + 1;
 }
@@ -2193,17 +2181,11 @@ static void inline_supported(inline_editor *edit) {
  *           or NULL on error. */
 char *inline_readline(inline_editor *edit) {
     if (!edit) return NULL;
+    inline_clear(edit);  // Reset buffer
 
-    edit->buffer_len = 0; // Reset buffer
-    edit->buffer[0] = '\0';
-
-    if (!inline_checktty()) {
-        inline_noterminal(edit);
-    } else if (inline_checksupported()) {
-        inline_supported(edit);
-    } else {
-        inline_unsupported(edit);
-    }
+    if (!inline_checktty()) inline_noterminal(edit);
+    else if (inline_checksupported()) inline_supported(edit);
+    else inline_unsupported(edit);
 
     return (edit->buffer ? inline_strdup(edit->buffer) : NULL);
 }
