@@ -655,12 +655,6 @@ static const codepoint_t suffix_extenders[] = {
     CODEPOINT("\xF0\x9F\x8F\xBF"), // dark skin tone
 };
 static const size_t suffix_count = sizeof(suffix_extenders) / sizeof(suffix_extenders[0]);
-
-/* Joiner codepoints connect the next codepoint into the same grapheme */
-static const codepoint_t joiners[] = {
-    CODEPOINT("\xE2\x80\x8D"),   // ZWJ (U+200D)
-};
-static const size_t joiners_count = sizeof(joiners) / sizeof(joiners[0]);
 #undef CODEPOINT
 
 /** Matches a codepoint against a table of possible matches */
@@ -679,6 +673,7 @@ static bool inline_isextendedpictographic(uint32_t cp) {
     if (cp >= 0x1F300 && cp <= 0x1FAFF) return true; // Emoji blocks
     if (cp >= 0x2600 && cp <= 0x26FF) return true; // Misc symbols
     if (cp >= 0x2700 && cp <= 0x27BF) return true; // Dingbats
+    if (cp == 0x1F3F3 || cp == 0x1F3F4) return true; // White/black flag
     return false;
 }
 
@@ -686,70 +681,66 @@ static inline bool inline_isregionalindicator(uint32_t cp) {
     return (cp >= 0x1F1E6 && cp <= 0x1F1FF);
 }
 
-/** Minimal heuristic grapheme splitter */
+/** Heuristic grapheme splitter */
 static size_t inline_graphemesplit(const char *in, const char *end) {
     const unsigned char *p = (const unsigned char *)in;
     const unsigned char *uend = (const unsigned char *)end;
     if (p >= uend) return 0;
 
-    size_t len = inline_utf8length(*p); // Base codepoint
+    size_t len = inline_utf8length(*p);
     if (len == 0 || (size_t)(uend - p) < len) len = 1;
 
-    uint32_t prev_cp = inline_utf8decode(p);
+    uint32_t prev_cp = inline_utf8decode(p); // Set basepoint
+    bool prev_had_vs16 = false;
     p += len;
 
-    // Combining marks
-    while (p < uend && *p >= 0xCC && *p <= 0xCF) {
+    while (p < uend && *p >= 0xCC && *p <= 0xCF) { // Combining marks
         len = inline_utf8length(*p);
         if (len == 0 || (size_t)(uend - p) < len) break;
-        prev_cp = inline_utf8decode(p);
         p += len;
     }
 
-    // Suffix extenders, e.g. skin tone, VS16
     while ((len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend)) != 0) {
-        prev_cp = inline_utf8decode(p);
+        if (len == 3 && p[0]==0xEF && p[1]==0xB8 && p[2]==0x8F) prev_had_vs16 = true; // VS16
         p += len;
     }
 
-    // Regional indicator flags (pair of two)
-    if (inline_isregionalindicator(prev_cp)) {
+    if (p < uend && inline_isregionalindicator(prev_cp)) { // Regional indicator pair
         size_t next_len = inline_utf8length(*p);
         if (next_len > 0 && (size_t)(uend - p) >= next_len) {
             uint32_t next_cp = inline_utf8decode(p);
             if (inline_isregionalindicator(next_cp)) {
-                p += next_len;  // consume second RI
+                p += next_len;
                 return (size_t)(p - (const unsigned char *)in);
             }
         }
     }
 
     for (;;) { // ZWJ chains
-        len = inline_matchcodepoint(joiners_count, joiners, p, uend);
-        if (len == 0) break;
-
-        p += len; // skip ZWJ
+        if ((size_t)(uend - p) < 3 || p[0]!=0xE2 || p[1]!=0x80 || p[2]!=0x8D) break; // ZWJ
+        p += 3;
         if (p >= uend) break;
 
-        size_t next_len = inline_utf8length(*p); // next base
+        size_t next_len = inline_utf8length(*p);
         if (next_len == 0 || (size_t)(uend - p) < next_len) break;
 
         uint32_t next_cp = inline_utf8decode(p);
-        
-        if (!inline_isextendedpictographic(prev_cp) || // must be emoji on both sides
+
+        if (!(inline_isextendedpictographic(prev_cp) || prev_had_vs16) ||
             !inline_isextendedpictographic(next_cp)) break;
 
-        prev_cp = next_cp; // consume next base
+        prev_cp = next_cp;         // consume base
+        prev_had_vs16 = false;
         p += next_len;
 
-        while (p < uend && *p >= 0xCC && *p <= 0xCF) { // combining marks after joined base
+        while (p < uend && *p >= 0xCC && *p <= 0xCF) { // Combining mark
             next_len = inline_utf8length(*p);
             if (next_len == 0 || (size_t)(uend - p) < next_len) break;
             p += next_len;
         }
 
-        // suffix extenders after joined base
         while ((next_len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend)) != 0) {
+            if (next_len == 3 && p[0]==0xEF && p[1]==0xB8 && p[2]==0x8F) prev_had_vs16 = true;
             p += next_len;
         }
     }
@@ -864,43 +855,36 @@ static void inline_recomputelines(inline_editor *edit) {
 
 /** Check for ZWJ, VS16, keycap */
 static bool inline_checkextenders(const unsigned char *g, size_t len) {
-    for (size_t i = 0; i + 2 < len; i++) {
-        unsigned char a = g[i], b = g[i+1], c = g[i+2];
-        if (a == 0xE2 && b == 0x80 && c == 0x8D) return true;  // ZWJ
-        if (a == 0xEF && b == 0xB8 && c == 0x8F) return true;  // VS16
-        if (a == 0xE2 && b == 0x83 && c == 0xA3) return true;  // keycap
+    for (size_t i = 0; i < len; ) {
+        uint32_t cp = inline_utf8decode(g + i);
+        if (cp == 0x200D || cp == 0xFE0E || cp == 0xFE0F || cp == 0x20E3) return true; // ZWJ, VS15, VS16, Keycap
+        if (cp >= 0x1F3FB && cp <= 0x1F3FF) return true; // Skin tones
+        if (cp >= 0x1F9B0 && cp <= 0x1F9B3) return true; // Hair modifiers
+        i += inline_utf8length(g[i]);
     }
     return false;
 }
 
 /** Predict the display width of a grapheme */
 static int inline_graphemewidth(const char *p, size_t len) {
-    const unsigned char *g = (const unsigned char *) p;
     if (!len) return 0;
-    if (g[0] == '\t') return INLINE_TAB_WIDTH; // Tab
-    if (g[0] < 0x80) return 1; // ASCII fast path
+    const unsigned char *g = (const unsigned char *)p;
+    uint32_t cp = inline_utf8decode(g);
 
-    if (len == 8 && inline_isregionalindicator(inline_utf8decode(g)) // Regional indicators
-                 && inline_isregionalindicator(inline_utf8decode(g + inline_utf8length(*g)))) return 2; 
-    if (len >= 2 && (g[0] == 0xCC || g[0] == 0xCD)) return 0; // Combining-only grapheme (rare)
-    if (inline_checkextenders(g, len)) return 2; // Check for ZWJ, VS16 and other extenders
-    if (len >= 2 && g[0] == 0xEF && (g[1] == 0xBC || g[1] == 0xBD)) return 2; // Fullwidth forms (U+FF00 block)
-
-    if (len >= 4 && (g[0] & 0xF8) == 0xF0) { // Emoji block (U+1F300–U+1FAFF)
-        if ((g[1] & 0xC0) != 0x80 || (g[2] & 0xC0) != 0x80 || (g[3] & 0xC0) != 0x80) return 1;
-        unsigned cp = ((g[0] & 0x07) << 18) | ((g[1] & 0x3F) << 12) |
-                      ((g[2] & 0x3F) << 6) | (g[3] & 0x3F);
-        if (cp >= 0x1F300 && cp <= 0x1FAFF) return 2;
-    }
-
-    if (len >= 3 && g[0] >= 0xE4 && g[0] <= 0xE9) { // CJK Unified Ideographs (U+4E00–U+9FFF)
-        if ((g[1] & 0xC0) != 0x80 || (g[2] & 0xC0) != 0x80) return 1;
-        unsigned cp = ((g[0] & 0x0F) << 12) | ((g[1] & 0x3F) << 6) | (g[2] & 0x3F);
-        if (cp >= 0x4E00 && cp <= 0x9FFF) return 2;
-    }
-
-    return 1;
+    if (cp == '\t') return INLINE_TAB_WIDTH; // Tab
+    if (cp < 0x80) return 1; // ASCII code
+    if (cp >= 0x0300 && cp <= 0x036F) return 0; // Combining marks
+    if (cp >= 0xAC00 && cp <= 0xD7A3) return 2; // Hangul syllables
+    if (cp >= 0xFF01 && cp <= 0xFF60) return 2; // Fullwidth forms
+    if (cp >= 0xFFE0 && cp <= 0xFFE6) return 2;
+    if (inline_isregionalindicator(cp) && // Regional indicator sequence
+        len > 4 && inline_isregionalindicator(inline_utf8decode(g + inline_utf8length(*g)))) return 2;
+    if (inline_checkextenders(g, len)) return 2; // Emoji extenders (ZWJ, VS16, skin tones, etc.)
+    if (cp >= 0x1F300 && cp <= 0x1FAFF) return 2; // Emoji
+    if (cp >= 0x4E00 && cp <= 0x9FFF) return 2; // CJK Unified Ideographs
+    return 1; // Anything else
 }
+
 
 /** Calculate the display width of a utf8 string using current grapheme splitter/width estimator */
 static bool inline_stringwidth(inline_editor *edit, const char *str, int *width) {
