@@ -675,12 +675,15 @@ static size_t inline_matchcodepoint(size_t table_count, const codepoint_t *table
     return 0; // no match
 }
 
-/** Check if a codepoint is extended pictographic */
 static bool inline_isextendedpictographic(uint32_t cp) {
     if (cp >= 0x1F300 && cp <= 0x1FAFF) return true; // Emoji blocks
     if (cp >= 0x2600 && cp <= 0x26FF) return true; // Misc symbols
     if (cp >= 0x2700 && cp <= 0x27BF) return true; // Dingbats
     return false;
+}
+
+static inline bool inline_isregionalindicator(uint32_t cp) {
+    return (cp >= 0x1F1E6 && cp <= 0x1F1FF);
 }
 
 /** Minimal heuristic grapheme splitter */
@@ -689,57 +692,65 @@ static size_t inline_graphemesplit(const char *in, const char *end) {
     const unsigned char *uend = (const unsigned char *)end;
     if (p >= uend) return 0;
 
-    size_t len = inline_utf8length(*p); // Decode first codepoint
-    if (len == 0) len = 1;
-    if ((size_t)(uend - p) < len) return (size_t)(uend - p);
+    size_t len = inline_utf8length(*p); // Base codepoint
+    if (len == 0 || (size_t)(uend - p) < len) len = 1;
 
-    const unsigned char *prev = p;  // start of previous codepoint
     uint32_t prev_cp = inline_utf8decode(p);
     p += len;
 
-    while (p < uend && *p >= 0xCC && *p <= 0xCF) { // Combining marks
+    // Combining marks
+    while (p < uend && *p >= 0xCC && *p <= 0xCF) {
         len = inline_utf8length(*p);
         if (len == 0 || (size_t)(uend - p) < len) break;
-
-        prev = p;
         prev_cp = inline_utf8decode(p);
         p += len;
     }
 
-    do { // Emoji modifiers / VS16 / keycap extenders
-        len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend);
-        if (len) {
-            prev = p;
-            prev_cp = inline_utf8decode(p);
-            p += len;
-        }
-    } while (len != 0);
+    // Suffix extenders, e.g. skin tone, VS16
+    while ((len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend)) != 0) {
+        prev_cp = inline_utf8decode(p);
+        p += len;
+    }
 
-    for (;;) { // ZWJ sequences
-        len = inline_matchcodepoint(joiners_count, joiners, p, uend); // Check for ZWJ
+    // Regional indicator flags (pair of two)
+    if (inline_isregionalindicator(prev_cp)) {
+        size_t next_len = inline_utf8length(*p);
+        if (next_len > 0 && (size_t)(uend - p) >= next_len) {
+            uint32_t next_cp = inline_utf8decode(p);
+            if (inline_isregionalindicator(next_cp)) {
+                p += next_len;  // consume second RI
+                return (size_t)(p - (const unsigned char *)in);
+            }
+        }
+    }
+
+    for (;;) { // ZWJ chains
+        len = inline_matchcodepoint(joiners_count, joiners, p, uend);
         if (len == 0) break;
 
-        p += len;  // Skip ZWJ itself
+        p += len; // skip ZWJ
         if (p >= uend) break;
 
-        size_t next_len = inline_utf8length(*p); // Decode next codepoint
+        size_t next_len = inline_utf8length(*p); // next base
         if (next_len == 0 || (size_t)(uend - p) < next_len) break;
 
         uint32_t next_cp = inline_utf8decode(p);
-
-        // Only join if both sides are emoji (extended pictographic)
-        if (!inline_isextendedpictographic(prev_cp) ||
+        
+        if (!inline_isextendedpictographic(prev_cp) || // must be emoji on both sides
             !inline_isextendedpictographic(next_cp)) break;
 
-        prev = p; // Join: consume next codepoint
-        prev_cp = next_cp;
+        prev_cp = next_cp; // consume next base
         p += next_len;
 
-        size_t slen; // Consume suffix extenders 
-        while ((slen = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend)) != 0) {
-            prev = p;
-            prev_cp = inline_utf8decode(p);
-            p += slen;
+        while (p < uend && *p >= 0xCC && *p <= 0xCF) { // combining marks after joined base
+            next_len = inline_utf8length(*p);
+            if (next_len == 0 || (size_t)(uend - p) < next_len) break;
+            p += next_len;
+        }
+
+        // suffix extenders after joined base
+        while ((next_len = inline_matchcodepoint(suffix_count, suffix_extenders, p, uend)) != 0) {
+            p += next_len;
         }
     }
 
@@ -869,6 +880,8 @@ static int inline_graphemewidth(const char *p, size_t len) {
     if (g[0] == '\t') return INLINE_TAB_WIDTH; // Tab
     if (g[0] < 0x80) return 1; // ASCII fast path
 
+    if (len == 8 && inline_isregionalindicator(inline_utf8decode(g)) // Regional indicators
+                 && inline_isregionalindicator(inline_utf8decode(g + inline_utf8length(*g)))) return 2; 
     if (len >= 2 && (g[0] == 0xCC || g[0] == 0xCD)) return 0; // Combining-only grapheme (rare)
     if (inline_checkextenders(g, len)) return 2; // Check for ZWJ, VS16 and other extenders
     if (len >= 2 && g[0] == 0xEF && (g[1] == 0xBC || g[1] == 0xBD)) return 2; // Fullwidth forms (U+FF00 block)
@@ -1474,27 +1487,8 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
         return;
     }
 
-    size_t offset = 0;
-    while (offset < len) { //
-        inline_colorspan_t span = { .byte_end = offset, .color=-1};
+    inline_insert(edit, string, len);
 
-        bool ok = edit->syntax_fn(string, edit->syntax_ref, offset, &span); // Obtain next span
-        if (!ok || span.byte_end <= offset) { // No more spans or broken callback; print the rest uncolored
-            write(STDOUT_FILENO, string + offset, (unsigned int) (len - offset));
-            return;
-        }
-
-        if (span.color < edit->palette_count && span.color >= 0) inline_emitcolor(edit->palette[span.color]);
-        for (size_t i = offset; i < span.byte_end; i++) {
-            if (string[i] == '\t') {
-                for (int t = 0; t < INLINE_TAB_WIDTH; t++) inline_emit(" ");
-            } else write(STDOUT_FILENO, &string[i], 1);
-        }
-
-        inline_emit(TERM_RESETFOREGROUND);
-
-        offset = span.byte_end;
-    }
     fflush(stdout);
 }
 
@@ -1681,7 +1675,7 @@ static void inline_keypresswithchar(keypress_t *keypress, keytype_t type, char c
 }
 
 /** Decode sequence of characters into a utf8 character */
-static void inline_decode_utf8(unsigned char first, keypress_t *out) {
+static void inline_decodeutf8input(unsigned char first, keypress_t *out) {
     out->nbytes = inline_utf8length(first);
 
     if (!out->nbytes) return; // Invalid first byte or stray continuation
@@ -1723,7 +1717,7 @@ static void inline_decode_escape(keypress_t *out) {
     if (!inline_readraw(&seq[i])) return; // Read byte after esc
 
     if (seq[0] !='[') { // Is this an alt + char combo?
-        inline_decode_utf8(seq[0], out);
+        inline_decodeutf8input(seq[0], out);
         out->type=KEY_ALT; // Override type
         return;
     }
@@ -1781,7 +1775,7 @@ static void inline_decode(const rawinput_t *raw, keypress_t *out) {
         return;
     }
 
-    inline_decode_utf8(b, out); // UTF8
+    inline_decodeutf8input(b, out); // UTF8
 }
 
 /** Obtain a keypress event */
