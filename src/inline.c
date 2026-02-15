@@ -1430,7 +1430,7 @@ static void inline_renderline(inline_editor *edit, const char *prompt, size_t by
         }
     }
 
-    if (logical_cursor_col >= 0) { // Update cursor position if on this line
+    if (logical_cursor_col >= 0 && rendered_cursor_col) { // Update cursor position if on this line
         if (rendered_cursor_posn >= 0) *rendered_cursor_col = rendered_cursor_posn;
         else *rendered_cursor_col = rendered_width; // cursor at end
     }
@@ -1487,8 +1487,19 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
         return;
     }
 
+    inline_reset(edit);
     inline_insert(edit, string, len);
+    inline_recomputegraphemes(edit);
+    inline_recomputelines(edit);
 
+    for (int i = 0; i < edit->line_count; i++) {
+        size_t byte_start = edit->lines[i], byte_end = edit->lines[i+1];
+        bool is_last = (i == edit->line_count - 1);
+        inline_renderline(edit, "", byte_start, byte_end, -1, is_last, NULL );
+        if (i + 1 < edit->line_count) inline_emit("\n\r"); // Move to next line if not at end
+    }
+
+    inline_clear(edit);
     fflush(stdout);
 }
 
