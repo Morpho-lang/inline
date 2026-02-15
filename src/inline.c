@@ -1488,6 +1488,7 @@ void inline_displaywithsyntaxcoloring(inline_editor *edit, const char *string) {
     }
 
     inline_reset(edit);
+    edit->viewport.screen_cols=INT_MAX;
     inline_insert(edit, string, len);
     inline_recomputegraphemes(edit);
     inline_recomputelines(edit);
