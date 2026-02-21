@@ -56,7 +56,7 @@ const char *completefn(const char *buffer, void *ref, size_t *index) {
 /** Define color palette */
 static int palette[] = {
     -1,                            // 0 = default
-    INLINE_MAGENTA,                // 1 = keywords
+    INLINE_COLOR_ANSI216(5, 1, 5), // 1 = keywords
     INLINE_COLOR_ANSI216(1, 4, 3), // 2 = strings
     INLINE_COLOR_ANSI216(4, 3, 0), // 3 = numbers
 };
@@ -139,10 +139,10 @@ static bool multilinefn(const char *in, void *ref) {
  * ********************************************************************** */
 
 int main(void) {
-    printf("Inline editor test... (type 'quit' to exit)\n");
+    printf("Inline editor demo... [type 'quit' to exit]\n");
 
     /** Create editor */
-    inline_editor *edit = inline_new("> ");
+    inline_editor *edit = inline_new("inline> ");
     if (!edit) {
         fprintf(stderr, "inline_new failed\n");
         return 1;
@@ -153,7 +153,7 @@ int main(void) {
     inline_autocomplete(edit, completefn, NULL); // Configure editor with autocomplete
     inline_syntaxcolor(edit, syntaxhighlighterfn, NULL); // Configure editor with syntax highlighter
     inline_setpalette(edit, (int) sizeof(palette)/sizeof(palette[0]), palette);
-    inline_multiline(edit, multilinefn, NULL, "~ "); // Configure editor for multiline editing
+    inline_multiline(edit, multilinefn, NULL, "inline~ "); // Configure editor for multiline editing
 
     for (bool quit=false; !quit;) {
         char *line = inline_readline(edit);
