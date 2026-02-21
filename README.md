@@ -1,6 +1,6 @@
 ![Inline](assets/inlinelogo.png#gh-light-mode-only)![Inline](assets/inlinelogo-dark.png#gh-dark-mode-only)
 
-Inline is a small, grapheme-aware[*] line editor for embedding in other applications. 
+Inline is a small, grapheme-aware<sup>†</sup> line editor for embedding in other applications. 
 
 ![Demo](assets/demo.svg)
 
@@ -29,7 +29,7 @@ Inline is intentionally callback-driven. The editor owns editing, rendering, and
 
 Inline is cross platform: both POSIX-like operating systems (macOS, linux) and Windows are supported. There are no dependencies beyond the C standard library and either standard windows or POSIX libraries. Inline is provided under the [MIT license](LICENSE). 
 
-[*] A "grapheme" is a sequence of Unicode codepoints that correspond approximately to what a user perceives as a single character or glyph on the display. A full definition is in Unicode Standard Annex #29.
+<sup>†</sup> A "grapheme" is a sequence of Unicode codepoints that correspond approximately to what a user perceives as a single character or glyph on the display. A full definition is in Unicode Standard Annex #29.
 
 ## Building
 
